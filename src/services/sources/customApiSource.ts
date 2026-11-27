@@ -1,4 +1,3 @@
-import { resolveYouTubeViaWebView } from '@/services/audio/youtubeWebViewBridge';
 import type { MusicSourceProvider } from '@/services/sources/types';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Track } from '@/types/music';
@@ -31,7 +30,8 @@ export function mapCustomTrack(
 ): Track {
   const idStr = String(item.id);
   const cleanBase = normalizeBaseUrl(baseUrl);
-  const explicitStream = item.streamUrl?.trim() || undefined;
+  const resolvedStream =
+    item.streamUrl || (cleanBase ? `${cleanBase}/stream/${encodeURIComponent(idStr)}` : undefined);
 
   const durationMs =
     typeof item.durationMs === 'number' && item.durationMs > 0
@@ -42,7 +42,7 @@ export function mapCustomTrack(
 
   const explicitFlag = item.isDownloadable ?? item.downloadable;
   const isDownloadable = Boolean(
-    allowDownloads && (explicitFlag === undefined ? true : explicitFlag) && (explicitStream || cleanBase)
+    allowDownloads && (explicitFlag === undefined ? true : explicitFlag) && resolvedStream
   );
 
   const artistName = item.artist?.trim() || 'Custom Server Artist';
@@ -60,7 +60,7 @@ export function mapCustomTrack(
     year: item.year,
     durationMs,
     artworkUrl: item.artworkUrl || item.artwork || item.cover || undefined,
-    streamUrl: explicitStream,
+    streamUrl: resolvedStream,
     isDownloadable,
     license: 'Custom Audio Endpoint',
     genre: item.genre,
@@ -120,7 +120,9 @@ export const customApiSourceProvider: MusicSourceProvider = {
 
   async getStreamUrl(track: Track): Promise<string | null> {
     if (track.streamUrl) return track.streamUrl;
-    return await resolveYouTubeViaWebView(track.sourceTrackId);
+    const baseUrl = normalizeBaseUrl(useSettingsStore.getState().settings.customApiUrl);
+    if (!baseUrl) return null;
+    return `${baseUrl}/stream/${encodeURIComponent(track.sourceTrackId)}`;
   },
 
   isDownloadable(track: Track): boolean {
