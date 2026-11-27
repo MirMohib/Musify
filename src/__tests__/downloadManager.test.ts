@@ -280,5 +280,25 @@ describe('downloadManager', () => {
       await removeTrackDownload(trackWithArtwork.id, record);
       expect(db.deleteDownloadDb).toHaveBeenCalledWith(trackWithArtwork.id);
     });
+
+    it('includes cached local artwork bytes in getDownloadedStorageBytes', () => {
+      const records: Record<string, DownloadRecord> = {
+        artTest: {
+          trackId: 'artTest',
+          status: 'completed',
+          progress: 1,
+          bytesWritten: 2000,
+          totalBytes: 2000,
+          localUri: 'file:///mock-documents/musify_downloads/artTest.mp3',
+          localArtworkUri: 'file:///mock-documents/musify_artwork/artTest.jpg',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      };
+
+      const total = getDownloadedStorageBytes(records);
+      expect(typeof total).toBe('number');
+      expect(total).toBeGreaterThanOrEqual(0);
+    });
   });
 });

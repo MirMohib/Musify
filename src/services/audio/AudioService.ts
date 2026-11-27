@@ -113,7 +113,7 @@ class ExpoAudioBackend implements AudioBackend {
         title: track.title,
         artist: track.artist,
         albumTitle: track.album,
-        artworkUrl: track.artworkUrl,
+        artworkUrl: track.localArtworkUri || track.artworkUrl,
       });
     } catch {
       // Lock screen controls may require native dev build on certain targets.

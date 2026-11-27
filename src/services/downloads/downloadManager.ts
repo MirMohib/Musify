@@ -81,18 +81,6 @@ export function inferAudioExtensionFromUrlOrMime(url: string, contentType?: stri
   return '.mp3';
 }
 
-function getStreamRequestHeaders(url: string): Record<string, string> | undefined {
-  if (url.includes('googlevideo.com')) {
-    return {
-      Referer: 'https://m.youtube.com/',
-      Origin: 'https://m.youtube.com',
-      'User-Agent':
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
-    };
-  }
-  return undefined;
-}
-
 async function detectAudioExtension(url: string): Promise<string> {
   const fromUrl = inferAudioExtensionFromUrlOrMime(url);
   try {
@@ -108,20 +96,20 @@ async function detectAudioExtension(url: string): Promise<string> {
     // proceed to HEAD probe
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
     const res = await fetch(url, {
       method: 'HEAD',
-      headers: getStreamRequestHeaders(url),
       signal: controller.signal,
     });
-    clearTimeout(timer);
     if (res.ok) {
       return inferAudioExtensionFromUrlOrMime(url, res.headers.get('content-type'));
     }
   } catch {
     // Fallback cleanly to default extension if HEAD is blocked or times out
+  } finally {
+    clearTimeout(timer);
   }
 
   return fromUrl;
@@ -181,6 +169,17 @@ export function getDownloadedStorageBytes(records: Record<string, DownloadRecord
         }
       } catch {
         total += toSafeNumber(rec.bytesWritten) || toSafeNumber(rec.totalBytes);
+      }
+
+      if (rec.localArtworkUri) {
+        try {
+          const art = new File(rec.localArtworkUri);
+          if (art.exists) {
+            total += toSafeNumber(art.size);
+          }
+        } catch {
+          // ignore unreadable artwork cache entry
+        }
       }
     }
   }
@@ -251,45 +250,7 @@ export async function startTrackDownload(
   onUpdate(record);
 
   let lastPersistedProgress = 0;
-  const reqHeaders = getStreamRequestHeaders(downloadUrl);
-  // Handle data: URIs resolved directly from the in-app WebView audio bridge
-  if (downloadUrl.startsWith('data:')) {
-    const commaIdx = downloadUrl.indexOf(',');
-    if (commaIdx === -1) {
-      throw new Error('Invalid audio data stream.');
-    }
-    const base64Data = downloadUrl.slice(commaIdx + 1);
-    const m4aDest = new File(dir, `${sanitizeSlug(track)}.m4a`);
-    try {
-      if (m4aDest.exists) m4aDest.delete();
-    } catch {
-      // ignore
-    }
-    m4aDest.write(base64Data, { encoding: 'base64' });
-    const finalBytes = toSafeNumber(m4aDest.size);
-    if (finalBytes <= 1024) {
-      throw new Error('Resolved audio stream was empty.');
-    }
-
-    const completedRecord: DownloadRecord = {
-      ...record,
-      status: 'completed',
-      progress: 1,
-      bytesWritten: finalBytes,
-      totalBytes: finalBytes,
-      localUri: m4aDest.uri,
-      localArtworkUri,
-      resumeStateJson: undefined,
-      error: undefined,
-      updatedAt: Date.now(),
-    };
-    await upsertDownloadDb(completedRecord);
-    await upsertTrack({ ...trackWithOfflineArt, localUri: m4aDest.uri });
-    onUpdate(completedRecord);
-    return completedRecord;
-  }
   const task = new DownloadTask(downloadUrl, destFile, {
-    ...(reqHeaders ? { headers: reqHeaders } : {}),
     onProgress: ({ bytesWritten, totalBytes }) => {
       const safeWritten = toSafeNumber(bytesWritten);
       const safeTotal = toSafeNumber(totalBytes);
