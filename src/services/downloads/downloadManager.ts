@@ -252,6 +252,42 @@ export async function startTrackDownload(
 
   let lastPersistedProgress = 0;
   const reqHeaders = getStreamRequestHeaders(downloadUrl);
+  // Handle data: URIs resolved directly from the in-app WebView audio bridge
+  if (downloadUrl.startsWith('data:')) {
+    const commaIdx = downloadUrl.indexOf(',');
+    if (commaIdx === -1) {
+      throw new Error('Invalid audio data stream.');
+    }
+    const base64Data = downloadUrl.slice(commaIdx + 1);
+    const m4aDest = new File(dir, `${sanitizeSlug(track)}.m4a`);
+    try {
+      if (m4aDest.exists) m4aDest.delete();
+    } catch {
+      // ignore
+    }
+    m4aDest.write(base64Data, { encoding: 'base64' });
+    const finalBytes = toSafeNumber(m4aDest.size);
+    if (finalBytes <= 1024) {
+      throw new Error('Resolved audio stream was empty.');
+    }
+
+    const completedRecord: DownloadRecord = {
+      ...record,
+      status: 'completed',
+      progress: 1,
+      bytesWritten: finalBytes,
+      totalBytes: finalBytes,
+      localUri: m4aDest.uri,
+      localArtworkUri,
+      resumeStateJson: undefined,
+      error: undefined,
+      updatedAt: Date.now(),
+    };
+    await upsertDownloadDb(completedRecord);
+    await upsertTrack({ ...trackWithOfflineArt, localUri: m4aDest.uri });
+    onUpdate(completedRecord);
+    return completedRecord;
+  }
   const task = new DownloadTask(downloadUrl, destFile, {
     ...(reqHeaders ? { headers: reqHeaders } : {}),
     onProgress: ({ bytesWritten, totalBytes }) => {
@@ -269,7 +305,7 @@ export async function startTrackDownload(
       onUpdate(record);
       if (progress - lastPersistedProgress >= 0.1) {
         lastPersistedProgress = progress;
-        upsertDownloadDb(record).catch(() => {});
+        upsertDownloadDb(record).catch(() => { });
       }
     },
   });

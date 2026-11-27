@@ -14,7 +14,7 @@ const INJECTED_INTERCEPTOR_JS = `
   window.__musifyBridgeInstalled = true;
 
   var sent = false;
-  var trying = false;
+  var testedUrls = {};
 
   function isAudioPlaybackUrl(url) {
     if (!url || typeof url !== 'string') return false;
@@ -26,71 +26,39 @@ const INJECTED_INTERCEPTOR_JS = `
     );
   }
 
-  function postStreamUrl(finalUrl) {
-    if (sent || !finalUrl) return;
-    sent = true;
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'STREAM_URL', url: finalUrl }));
-  }
-
-  function verifyAndSend(rawUrl) {
-    if (sent || trying || !isAudioPlaybackUrl(rawUrl)) return;
-    trying = true;
-
-    // Build a full-file candidate (without range/rn/rbuf) AND keep exact rawUrl as backup
-    var fullCandidate = rawUrl;
+  function makeStandardAudioUrl(rawUrl) {
     try {
       var u = new URL(rawUrl);
+      // Remove YouTube UMP chunking flags so Google CDN serves a standard progressive M4A stream!
+      u.searchParams.delete('ump');
+      u.searchParams.delete('srfvp');
       u.searchParams.delete('range');
       u.searchParams.delete('rn');
       u.searchParams.delete('rbuf');
-      fullCandidate = u.toString();
-    } catch (e) {}
-
-    // Test inside WebView (with real YouTube cookies & Referer) if fullCandidate returns 200/206
-    var origFetch = window.__origFetch || window.fetch;
-    origFetch(fullCandidate, { headers: { Range: 'bytes=0-1023' } })
-      .then(function(res) {
-        if (res && (res.status === 200 || res.status === 206)) {
-          postStreamUrl(fullCandidate);
-        } else {
-          // If YouTube requires exact signed range, fetch full audio inside WebView and pass data URL
-          return fetchFullAudioInsideWebView(rawUrl, origFetch);
-        }
-      })
-      .catch(function() {
-        fetchFullAudioInsideWebView(rawUrl, origFetch);
-      });
+      return u.toString();
+    } catch (e) {
+      return rawUrl;
+    }
   }
 
-  function fetchFullAudioInsideWebView(rawUrl, origFetch) {
-    // Try fetching with large byte range on the exact signed URL
-    var rangedUrl = rawUrl;
-    try {
-      var u = new URL(rawUrl);
-      if (u.searchParams.has('range')) {
-        u.searchParams.set('range', '0-15000000');
-      }
-      rangedUrl = u.toString();
-    } catch (e) {}
+  function checkAndSend(rawUrl) {
+    if (sent || !isAudioPlaybackUrl(rawUrl)) return;
+    var cleanUrl = makeStandardAudioUrl(rawUrl);
+    if (testedUrls[cleanUrl]) return;
+    testedUrls[cleanUrl] = true;
 
-    origFetch(rangedUrl)
+    // Immediately verify with a tiny 1KB range check inside WebView
+    var origFetch = window.__origFetch || window.fetch;
+    origFetch(cleanUrl, { headers: { Range: 'bytes=0-1023' } })
       .then(function(res) {
-        if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status));
-        return res.blob();
+        if (!sent && res && (res.status === 200 || res.status === 206)) {
+          sent = true;
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: 'STREAM_URL', url: cleanUrl })
+          );
+        }
       })
-      .then(function(blob) {
-        if (!blob || blob.size < 2048) throw new Error('Empty blob');
-        var reader = new FileReader();
-        reader.onloadend = function() {
-          if (typeof reader.result === 'string') {
-            postStreamUrl(reader.result);
-          }
-        };
-        reader.readAsDataURL(blob);
-      })
-      .catch(function() {
-        trying = false;
-      });
+      .catch(function() {});
   }
 
   // 1. Intercept Response.prototype.arrayBuffer
@@ -98,7 +66,7 @@ const INJECTED_INTERCEPTOR_JS = `
     var origArrayBuffer = Response.prototype.arrayBuffer;
     Response.prototype.arrayBuffer = function() {
       try {
-        if (this && this.url) verifyAndSend(this.url);
+        if (this && this.url) checkAndSend(this.url);
       } catch (e) {}
       return origArrayBuffer.apply(this, arguments);
     };
@@ -109,11 +77,11 @@ const INJECTED_INTERCEPTOR_JS = `
   window.fetch = function(input, init) {
     try {
       var reqUrl = typeof input === 'string' ? input : (input && input.url ? String(input.url) : '');
-      verifyAndSend(reqUrl);
+      checkAndSend(reqUrl);
     } catch (e) {}
     return window.__origFetch.apply(this, arguments).then(function(res) {
       try {
-        if (res && res.url) verifyAndSend(res.url);
+        if (res && res.url) checkAndSend(res.url);
       } catch (e) {}
       return res;
     });
@@ -123,7 +91,7 @@ const INJECTED_INTERCEPTOR_JS = `
   var origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, reqUrl) {
     try {
-      verifyAndSend(String(reqUrl || ''));
+      checkAndSend(String(reqUrl || ''));
     } catch (e) {}
     return origOpen.apply(this, arguments);
   };
@@ -134,7 +102,7 @@ const INJECTED_INTERCEPTOR_JS = `
       var obs = new PerformanceObserver(function(list) {
         var entries = list.getEntries();
         for (var i = 0; i < entries.length; i++) {
-          verifyAndSend(entries[i].name);
+          checkAndSend(entries[i].name);
         }
       });
       obs.observe({ type: 'resource', buffered: true });
@@ -152,7 +120,7 @@ const INJECTED_INTERCEPTOR_JS = `
       }
       var entries = performance.getEntriesByType('resource');
       for (var i = entries.length - 1; i >= 0; i--) {
-        verifyAndSend(entries[i].name);
+        checkAndSend(entries[i].name);
       }
     } catch (e) {}
   }, 400);

@@ -77,7 +77,7 @@ export function resolveYouTubeViaWebView(rawVideoId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       failYouTubeBridgeJob(videoId, `Timed out resolving audio for ${videoId}`);
-    }, 15000);
+    }, 45000);
 
     queue.push({ videoId, resolve, reject, timer });
     pumpQueue();
