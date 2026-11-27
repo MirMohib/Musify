@@ -49,10 +49,18 @@ jobs:
       - name: Package Unsigned IPA
         working-directory: ios
         run: |
+          rm -rf Payload Musify-unsigned.ipa
           mkdir -p Payload
-          APP_PATH=$(find build/Build/Products/Release-iphoneos -name "*.app" | head -n 1)
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          echo "Found app bundle: $APP_PATH"
+          if [ -z "$APP_PATH" ] || [ ! -f "$APP_PATH/Info.plist" ]; then
+            echo "ERROR: Valid .app bundle with Info.plist not found!"
+            ls -la build/Build/Products/Release-iphoneos || true
+            exit 1
+          fi
           cp -R "$APP_PATH" Payload/
           zip -qry Musify-unsigned.ipa Payload
+          unzip -l Musify-unsigned.ipa | head -n 25
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
