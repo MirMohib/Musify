@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SongListSkeleton } from '@/components/SkeletonLoader';
 import { SongTile } from '@/components/SongTile';
 import { BROWSE_GENRES, type BrowseGenre } from '@/data/seedCatalog';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
@@ -137,25 +138,51 @@ export default function SearchScreen() {
     setQuery(genre.query);
   };
 
-  const handleTrackPress = async (track: Track) => {
-    await addRecentSearch({
-      id: `track:${track.id}`,
-      query: query.trim() || track.title,
-      kind: 'track',
-      title: track.title,
-      subtitle: `Song · ${track.artist}`,
-      artworkUrl: track.artworkUrl,
-    });
-    await playTrack(track, results.length > 0 ? results : [track], query.trim() || 'Search');
-  };
+  const handleTrackPress = useCallback(
+    async (track: Track) => {
+      await addRecentSearch({
+        id: `track:${track.id}`,
+        query: query.trim() || track.title,
+        kind: 'track',
+        title: track.title,
+        subtitle: `Song · ${track.artist}`,
+        artworkUrl: track.artworkUrl,
+      });
+      await playTrack(track, results.length > 0 ? results : [track], query.trim() || 'Search');
+    },
+    [addRecentSearch, playTrack, query, results]
+  );
 
-  const handleDownload = async (track: Track) => {
-    try {
-      await downloadTrack(track);
-    } catch (err) {
-      Alert.alert('Download Unavailable', err instanceof Error ? err.message : 'Unable to download.');
-    }
-  };
+  const handleDownload = useCallback(
+    async (track: Track) => {
+      try {
+        await downloadTrack(track);
+      } catch (err) {
+        Alert.alert('Download Unavailable', err instanceof Error ? err.message : 'Unable to download.');
+      }
+    },
+    [downloadTrack]
+  );
+
+  const renderSearchItem = useCallback(
+    ({ item }: { item: Track }) => (
+      <SongTile
+        track={item}
+        isActive={currentTrack?.id === item.id}
+        showSourceBadge
+        showDownloadAction
+        downloadRecord={downloads[item.id]}
+        onPress={() => handleTrackPress(item)}
+        onDownloadPress={() => handleDownload(item)}
+        onMorePress={() =>
+          router.push({ pathname: '/track-options', params: { trackId: item.id } })
+        }
+      />
+    ),
+    [currentTrack?.id, downloads, handleDownload, handleTrackPress, router]
+  );
+
+  const keyExtractor = useCallback((item: Track) => item.id, []);
 
   if (isSearching) {
     return (
@@ -278,16 +305,17 @@ export default function SearchScreen() {
             )}
           </ScrollView>
         ) : loading ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator size="large" color={Palette.brandGreen} />
-            <Text style={[styles.emptyHint, { color: theme.textSecondary, marginTop: 12 }]}>
-              Searching across music sources...
-            </Text>
+          <View style={{ paddingTop: Spacing.md }}>
+            <SongListSkeleton count={7} />
           </View>
         ) : (
           <FlatList
             data={results}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
+            windowSize={7}
+            maxToRenderPerBatch={8}
+            initialNumToRender={10}
+            removeClippedSubviews={Platform.OS !== 'web'}
             ListHeaderComponent={
               sourceErrors.length > 0 ? (
                 <Text style={styles.warningText}>{sourceErrors.join(' · ')}</Text>
@@ -300,20 +328,7 @@ export default function SearchScreen() {
                 </Text>
               </View>
             }
-            renderItem={({ item }) => (
-              <SongTile
-                track={item}
-                isActive={currentTrack?.id === item.id}
-                showSourceBadge
-                showDownloadAction
-                downloadRecord={downloads[item.id]}
-                onPress={() => handleTrackPress(item)}
-                onDownloadPress={() => handleDownload(item)}
-                onMorePress={() =>
-                  router.push({ pathname: '/track-options', params: { trackId: item.id } })
-                }
-              />
-            )}
+            renderItem={renderSearchItem}
           />
         )}
       </View>

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import React from 'react';
 import {
   ActivityIndicator,
@@ -30,7 +31,7 @@ interface SongTileProps {
   onDownloadPress?: () => void;
 }
 
-export function SongTile({
+export const SongTile = React.memo(function SongTile({
   track,
   isActive = false,
   showArtwork = true,
@@ -55,6 +56,7 @@ export function SongTile({
   const canDownload = isTrackDownloadable(track);
 
   const handleDownloadAction = async () => {
+    Haptics.selectionAsync().catch(() => {});
     if (onDownloadPress) {
       onDownloadPress();
       return;
@@ -201,7 +203,7 @@ export function SongTile({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: {

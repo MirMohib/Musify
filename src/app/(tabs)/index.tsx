@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PlaylistCard } from '@/components/PlaylistCard';
+import { HomeFeedSkeleton } from '@/components/SkeletonLoader';
 import { SongTile } from '@/components/SongTile';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -291,6 +292,11 @@ export default function HomeScreen() {
             )
           )}
         </View>
+      )}
+
+      {/* Skeleton placeholder while initial live feed loads */}
+      {!offlineOnly && isLoadingFeed && discoveryFeed.allTracks.length === 0 && (
+        <HomeFeedSkeleton />
       )}
 
       {/* Live Featured Artists */}

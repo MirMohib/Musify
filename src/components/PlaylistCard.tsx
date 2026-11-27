@@ -16,7 +16,7 @@ interface PlaylistCardProps {
   onPress: () => void;
 }
 
-export function PlaylistCard({
+export const PlaylistCard = React.memo(function PlaylistCard({
   title,
   subtitle,
   artworkUrl,
@@ -67,7 +67,7 @@ export function PlaylistCard({
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

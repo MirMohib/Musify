@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React from 'react';
 import {
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -61,6 +62,10 @@ export default function QueueScreen() {
       <FlatList
         data={upcoming}
         keyExtractor={({ track, idx }) => `${track.id}-${idx}`}
+        windowSize={7}
+        maxToRenderPerBatch={8}
+        initialNumToRender={10}
+        removeClippedSubviews={Platform.OS !== 'web'}
         ListHeaderComponent={
           <View style={styles.headerSection}>
             <Text style={[styles.sectionHeading, { color: theme.text }]}>Now Playing</Text>

@@ -26,6 +26,18 @@ import { getSourceLabel } from '@/utils/format';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+/**
+ * Isolated seek bar wrapper so 250ms audio timer updates only re-render SeekSlider,
+ * keeping FullPlayerScreen artwork, gradients, and buttons completely stable.
+ */
+const PlayerSeekSection = React.memo(function PlayerSeekSection() {
+  const positionMs = usePlayerStore((s) => s.positionMs);
+  const durationMs = usePlayerStore((s) => s.durationMs);
+  const seekTo = usePlayerStore((s) => s.seekTo);
+
+  return <SeekSlider positionMs={positionMs} durationMs={durationMs} onSeek={seekTo} />;
+});
+
 export default function FullPlayerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -33,8 +45,6 @@ export default function FullPlayerScreen() {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const contextTitle = usePlayerStore((s) => s.contextTitle);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const positionMs = usePlayerStore((s) => s.positionMs);
-  const durationMs = usePlayerStore((s) => s.durationMs);
   const shuffle = usePlayerStore((s) => s.shuffle);
   const repeatMode = usePlayerStore((s) => s.repeatMode);
   const activeDeviceName = usePlayerStore((s) => s.activeDeviceName);
@@ -42,7 +52,6 @@ export default function FullPlayerScreen() {
   const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
   const next = usePlayerStore((s) => s.next);
   const previous = usePlayerStore((s) => s.previous);
-  const seekTo = usePlayerStore((s) => s.seekTo);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const cycleRepeatMode = usePlayerStore((s) => s.cycleRepeatMode);
 
@@ -79,6 +88,7 @@ export default function FullPlayerScreen() {
   const isPaused = downloadRecord?.status === 'paused';
 
   const handleDownloadPress = async () => {
+    Haptics.selectionAsync().catch(() => {});
     try {
       if (isDownloading) {
         await pauseDownload(currentTrack.id);
@@ -209,11 +219,18 @@ export default function FullPlayerScreen() {
         </View>
 
         <View style={styles.sliderWrap}>
-          <SeekSlider positionMs={positionMs} durationMs={durationMs} onSeek={seekTo} />
+          <PlayerSeekSection />
         </View>
 
         <View style={styles.controlsRow}>
-          <Pressable onPress={toggleShuffle} hitSlop={10} accessibilityLabel="Shuffle">
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              toggleShuffle();
+            }}
+            hitSlop={10}
+            accessibilityLabel="Shuffle"
+          >
             <Ionicons
               name="shuffle"
               size={24}
@@ -221,7 +238,14 @@ export default function FullPlayerScreen() {
             />
           </Pressable>
 
-          <Pressable onPress={previous} hitSlop={10} accessibilityLabel="Previous track">
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              previous();
+            }}
+            hitSlop={10}
+            accessibilityLabel="Previous track"
+          >
             <Ionicons name="play-skip-back" size={34} color={Palette.white} />
           </Pressable>
 
@@ -241,12 +265,22 @@ export default function FullPlayerScreen() {
             />
           </Pressable>
 
-          <Pressable onPress={next} hitSlop={10} accessibilityLabel="Next track">
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              next();
+            }}
+            hitSlop={10}
+            accessibilityLabel="Next track"
+          >
             <Ionicons name="play-skip-forward" size={34} color={Palette.white} />
           </Pressable>
 
           <Pressable
-            onPress={cycleRepeatMode}
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              cycleRepeatMode();
+            }}
             hitSlop={10}
             style={styles.repeatBtn}
             accessibilityLabel={`Repeat mode: ${repeatMode}`}

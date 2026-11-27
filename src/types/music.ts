@@ -3,7 +3,15 @@
  * pluggable music source providers, and offline download management.
  */
 
-export type MusicSourceId = 'local' | 'jamendo' | 'audius' | 'archive' | 'seeded';
+export type MusicSourceId =
+  | 'local'
+  | 'jamendo'
+  | 'audius'
+  | 'archive'
+  | 'hearthis'
+  | 'radio'
+  | 'custom'
+  | 'seeded';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -32,6 +40,7 @@ export interface Track {
   year?: number;
   durationMs: number;
   artworkUrl?: string;
+  localArtworkUri?: string;
   /** Local asset module ID (require(...)) for bundled/seeded fallback art */
   artworkAsset?: number;
   streamUrl?: string;
@@ -90,6 +99,7 @@ export interface DownloadRecord {
   bytesWritten: number;
   totalBytes: number;
   localUri?: string;
+  localArtworkUri?: string;
   resumeStateJson?: string;
   error?: string;
   createdAt: number;

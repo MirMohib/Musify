@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -8,19 +9,33 @@ import { FontFamily, Layout, Palette, Radii, Spacing } from '@/constants/theme';
 import { usePlayerStore } from '@/store/usePlayerStore';
 import { hexWithAlpha } from '@/utils/format';
 
-export function MiniPlayer() {
+/**
+ * Isolated progress bar so 250ms playback position updates do NOT re-render
+ * the entire MiniPlayer artwork, text, or icons.
+ */
+const MiniPlayerProgress = React.memo(function MiniPlayerProgress() {
+  const positionMs = usePlayerStore((s) => s.positionMs);
+  const durationMs = usePlayerStore((s) => s.durationMs);
+
+  const progress =
+    durationMs > 0 ? Math.max(0, Math.min(1, positionMs / durationMs)) : 0;
+
+  return (
+    <View style={styles.progressTrack}>
+      <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+    </View>
+  );
+});
+
+export const MiniPlayer = React.memo(function MiniPlayer() {
   const router = useRouter();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const positionMs = usePlayerStore((s) => s.positionMs);
-  const durationMs = usePlayerStore((s) => s.durationMs);
   const activeDeviceName = usePlayerStore((s) => s.activeDeviceName);
   const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
 
   if (!currentTrack) return null;
 
-  const progress =
-    durationMs > 0 ? Math.max(0, Math.min(1, positionMs / durationMs)) : 0;
   const bgTint = currentTrack.dominantColor
     ? hexWithAlpha(currentTrack.dominantColor, 0.92)
     : '#3A1D21';
@@ -73,6 +88,7 @@ export function MiniPlayer() {
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
               togglePlayPause();
             }}
             hitSlop={10}
@@ -88,13 +104,10 @@ export function MiniPlayer() {
         </View>
       </View>
 
-      {/* Progress bar matching Figma Frame 63/64 */}
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-      </View>
+      <MiniPlayerProgress />
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

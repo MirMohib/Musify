@@ -18,7 +18,7 @@ interface TrackArtworkProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function TrackArtwork({
+export const TrackArtwork = React.memo(function TrackArtwork({
   artworkUrl,
   artworkAsset,
   dominantColor,
@@ -35,6 +35,8 @@ export function TrackArtwork({
     return (
       <Image
         source={source}
+        cachePolicy="memory-disk"
+        recyclingKey={artworkUrl ?? String(artworkAsset)}
         style={[
           {
             width: size,
@@ -45,7 +47,7 @@ export function TrackArtwork({
           style as never,
         ]}
         contentFit="cover"
-        transition={180}
+        transition={150}
       />
     );
   }
@@ -66,7 +68,7 @@ export function TrackArtwork({
       <Ionicons name={iconName} size={Math.max(16, Math.round(size * 0.42))} color="#FFFFFF" />
     </LinearGradient>
   );
-}
+});
 
 export function getTrackArtworkProps(track?: Partial<Track> | null) {
   return {
