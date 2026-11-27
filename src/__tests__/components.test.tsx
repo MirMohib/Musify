@@ -2,9 +2,11 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppEntranceLoader } from '@/components/AppEntranceLoader';
 import { MiniPlayer } from '@/components/MiniPlayer';
 import { AddToPlaylistModal } from '@/components/PlaylistModal';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
+import { ProfileDrawer } from '@/components/ProfileDrawer';
 import { SleepTimerSheet } from '@/components/SleepTimerSheet';
 import { SongTile } from '@/components/SongTile';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -169,5 +171,53 @@ describe('UI components', () => {
 
     await fireEvent.press(btn);
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders AppEntranceLoader with status text and triggers onFinishExit when ready', async () => {
+    jest.useFakeTimers();
+    try {
+      const onFinishExit = jest.fn();
+      const { getByText, getByLabelText, rerender } = await render(
+        <AppEntranceLoader
+          isReady={false}
+          statusText="Loading music library..."
+          onFinishExit={onFinishExit}
+        />
+      );
+
+      expect(getByLabelText('Loading Musify')).toBeTruthy();
+      expect(getByText('Musify')).toBeTruthy();
+      expect(getByText('Loading music library...')).toBeTruthy();
+      expect(onFinishExit).not.toHaveBeenCalled();
+
+      await rerender(
+        <AppEntranceLoader
+          isReady
+          statusText="Ready"
+          onFinishExit={onFinishExit}
+        />
+      );
+
+      await act(async () => {
+        jest.advanceTimersByTime(450);
+      });
+
+      expect(onFinishExit).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('renders ProfileDrawer with MirMohib developer credit at bottom', async () => {
+    useSettingsStore.setState({ isProfileDrawerOpen: true });
+
+    const { getByText } = await render(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <ProfileDrawer />
+      </SafeAreaProvider>
+    );
+
+    expect(getByText('Settings and privacy')).toBeTruthy();
+    expect(getByText('Developed by MirMohib')).toBeTruthy();
   });
 });

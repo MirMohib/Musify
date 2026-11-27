@@ -152,6 +152,9 @@ export function ProfileDrawer() {
             <Text style={[styles.footerSub, { color: theme.textSecondary }]}>
               Free &amp; Offline-First Player
             </Text>
+            <Text style={[styles.footerCredit, { color: theme.textSecondary }]}>
+              Developed by MirMohib
+            </Text>
           </View>
         </Animated.View>
 
@@ -223,5 +226,10 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: 12,
     marginTop: 2,
+  },
+  footerCredit: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 12,
+    marginTop: 6,
   },
 });
