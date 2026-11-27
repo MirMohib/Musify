@@ -79,7 +79,6 @@ export function mapAudiusTrack(item: AudiusTrackDto, host: string): Track {
     isDownloadable: downloadable,
     license: downloadable ? 'Artist Download Enabled (Audius)' : 'Streaming Only (Audius)',
     genre: item.genre,
-    dominantColor: '#3B2667',
   };
 }
 

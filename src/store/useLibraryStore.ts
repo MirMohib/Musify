@@ -47,6 +47,7 @@ interface LibraryState {
 
   hydrate: () => Promise<void>;
   registerTracks: (tracks: Track[]) => void;
+  updateTrackColor: (trackId: string, dominantColor: string) => Promise<void>;
   toggleLike: (track: Track) => Promise<boolean>;
   likeAllTracks: (tracks: Track[]) => Promise<void>;
   hideTrack: (trackId: string) => void;
@@ -140,10 +141,42 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           ...next[t.id],
           ...t,
           artworkAsset: t.artworkAsset ?? next[t.id]?.artworkAsset,
+          dominantColor: t.dominantColor ?? next[t.id]?.dominantColor,
         };
       }
       return { tracksById: next };
     });
+  },
+
+  updateTrackColor: async (trackId, dominantColor) => {
+    const existing = get().tracksById[trackId];
+    if (!existing || existing.dominantColor === dominantColor) return;
+    const updated: Track = { ...existing, dominantColor };
+    set((state) => ({
+      tracksById: { ...state.tracksById, [trackId]: updated },
+      discoveryFeed: {
+        ...state.discoveryFeed,
+        audiusTracks: state.discoveryFeed.audiusTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+        jamendoTracks: state.discoveryFeed.jamendoTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+        archiveTracks: state.discoveryFeed.archiveTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+        hearthisTracks: state.discoveryFeed.hearthisTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+        radioTracks: state.discoveryFeed.radioTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+        allTracks: state.discoveryFeed.allTracks.map((t) =>
+          t.id === trackId ? { ...t, dominantColor } : t
+        ),
+      },
+    }));
+    await upsertTrack(updated).catch(() => {});
   },
 
   toggleLike: async (track) => {

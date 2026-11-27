@@ -1,3 +1,4 @@
+import * as Device from 'expo-device';
 import { create } from 'zustand';
 
 import { audioService } from '@/services/audio/AudioService';
@@ -6,6 +7,16 @@ import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { RepeatMode, Track } from '@/types/music';
+
+export type SleepTimerMode = 'off' | 'duration' | 'end_of_track';
+
+function getDefaultDeviceName(): string {
+  try {
+    return Device.deviceName || Device.modelName || 'This Phone';
+  } catch {
+    return 'This Phone';
+  }
+}
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -20,6 +31,7 @@ interface PlayerState {
   repeatMode: RepeatMode;
   activeDeviceName: string;
   sleepTimerEndsAt: number | null;
+  sleepTimerMode: SleepTimerMode;
   playbackError: string | null;
   initialized: boolean;
 
@@ -37,6 +49,8 @@ interface PlayerState {
   clearUpcomingQueue: () => void;
   setActiveDevice: (name: string) => void;
   setSleepTimer: (minutes: number | null) => void;
+  setSleepTimerEndOfTrack: () => void;
+  updateTrackColor: (trackId: string, dominantColor: string) => void;
   clearError: () => void;
 }
 
@@ -54,8 +68,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   durationMs: 0,
   shuffle: false,
   repeatMode: 'off',
-  activeDeviceName: 'This Phone',
+  activeDeviceName: getDefaultDeviceName(),
   sleepTimerEndsAt: null,
+  sleepTimerMode: 'off',
   playbackError: null,
   initialized: false,
 
@@ -74,8 +89,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
 
       if (status.didJustFinish) {
-        const { repeatMode } = get();
-        if (repeatMode === 'one' && current) {
+        const { repeatMode, sleepTimerMode } = get();
+        if (sleepTimerMode === 'end_of_track') {
+          audioService.pause().catch(() => {});
+          audioService.seekTo(0).catch(() => {});
+          set({
+            isPlaying: false,
+            positionMs: 0,
+            sleepTimerMode: 'off',
+            sleepTimerEndsAt: null,
+          });
+        } else if (repeatMode === 'one' && current) {
           get().seekTo(0).then(() => audioService.play());
         } else {
           get().next();
@@ -263,15 +287,35 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       sleepTimerHandle = null;
     }
     if (!minutes || minutes <= 0) {
-      set({ sleepTimerEndsAt: null });
+      set({ sleepTimerEndsAt: null, sleepTimerMode: 'off' });
       return;
     }
     const endsAt = Date.now() + minutes * 60 * 1000;
-    set({ sleepTimerEndsAt: endsAt });
+    set({ sleepTimerEndsAt: endsAt, sleepTimerMode: 'duration' });
     sleepTimerHandle = setTimeout(() => {
       audioService.pause().catch(() => {});
-      set({ isPlaying: false, sleepTimerEndsAt: null });
+      set({ isPlaying: false, sleepTimerEndsAt: null, sleepTimerMode: 'off' });
     }, minutes * 60 * 1000);
+  },
+
+  setSleepTimerEndOfTrack: () => {
+    if (sleepTimerHandle) {
+      clearTimeout(sleepTimerHandle);
+      sleepTimerHandle = null;
+    }
+    set({ sleepTimerEndsAt: null, sleepTimerMode: 'end_of_track' });
+  },
+
+  updateTrackColor: (trackId, dominantColor) => {
+    set((state) => ({
+      currentTrack:
+        state.currentTrack?.id === trackId
+          ? { ...state.currentTrack, dominantColor }
+          : state.currentTrack,
+      queue: state.queue.map((t) =>
+        t.id === trackId ? { ...t, dominantColor } : t
+      ),
+    }));
   },
 
   clearError: () => set({ playbackError: null }),

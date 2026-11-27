@@ -103,7 +103,6 @@ export async function importDeviceAudioFiles(): Promise<{
       streamUrl: finalUri,
       isDownloadable: false,
       license: 'Local Device File',
-      dominantColor: '#264653',
     };
 
     await upsertTrack(track);
@@ -194,7 +193,6 @@ export async function scanDeviceAudio(promptForPermission = true): Promise<Devic
         streamUrl: uri,
         isDownloadable: false,
         license: 'Local Device Media',
-        dominantColor: '#2A4D3E',
       });
     }
 

@@ -47,7 +47,6 @@ function mapJamendoTrack(item: JamendoTrackDto): Track {
     streamUrl: item.audio,
     isDownloadable: downloadable,
     license: item.license_ccurl ? 'Creative Commons (Jamendo)' : 'Jamendo Free',
-    dominantColor: '#1E4D3B',
   };
 }
 

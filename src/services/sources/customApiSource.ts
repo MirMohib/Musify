@@ -64,7 +64,6 @@ export function mapCustomTrack(
     isDownloadable,
     license: 'Custom Audio Endpoint',
     genre: item.genre,
-    dominantColor: '#264653',
   };
 }
 

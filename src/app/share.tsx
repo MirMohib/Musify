@@ -16,11 +16,14 @@ import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Shadows, Spacing } from '@/constants/theme';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
+import { useAppTheme } from '@/store/useSettingsStore';
+import { buildDynamicPlayerGradient } from '@/utils/colorUtils';
 
 export default function ShareScreen() {
   const { trackId } = useLocalSearchParams<{ trackId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const theme = useAppTheme();
 
   const tracksById = useLibraryStore((s) => s.tracksById);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
@@ -94,9 +97,16 @@ export default function ShareScreen() {
   ];
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
       <LinearGradient
-        colors={[track.dominantColor || Palette.playerGradientTop, '#121212']}
+        colors={[
+          buildDynamicPlayerGradient(
+            track.dominantColor,
+            theme.surfaceElevated,
+            theme.background
+          ).top,
+          theme.background,
+        ]}
         locations={[0, 0.72]}
         style={[styles.topArea, { paddingTop: insets.top + 14 }]}
       >

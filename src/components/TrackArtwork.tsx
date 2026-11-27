@@ -5,6 +5,7 @@ import React from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Palette } from '@/constants/theme';
+import { useAppTheme } from '@/store/useSettingsStore';
 import type { Track } from '@/types/music';
 
 interface TrackArtworkProps {
@@ -30,6 +31,7 @@ export const TrackArtwork = React.memo(function TrackArtwork({
   iconName = 'musical-notes',
   style,
 }: TrackArtworkProps) {
+  const theme = useAppTheme();
   const radius = circular ? size / 2 : borderRadius;
   const resolvedUri = localArtworkUri || artworkUrl;
   const source = resolvedUri ? { uri: resolvedUri } : artworkAsset;
@@ -57,7 +59,7 @@ export const TrackArtwork = React.memo(function TrackArtwork({
 
   return (
     <LinearGradient
-      colors={[dominantColor || '#2E3A59', '#181818']}
+      colors={[dominantColor || theme.surfaceElevated, theme.background]}
       style={[
         styles.fallback,
         {

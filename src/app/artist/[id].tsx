@@ -119,7 +119,7 @@ export default function ArtistScreen() {
         showsVerticalScrollIndicator={false}
       >
         <LinearGradient
-          colors={[heroTrack?.dominantColor || '#434343', theme.background]}
+          colors={[heroTrack?.dominantColor || theme.surfaceElevated, theme.background]}
           style={[styles.hero, { paddingTop: insets.top + 8 }]}
         >
           <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>

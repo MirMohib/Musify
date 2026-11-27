@@ -7,6 +7,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Layout, Palette, Radii, Spacing } from '@/constants/theme';
 import { usePlayerStore } from '@/store/usePlayerStore';
+import { useAppTheme } from '@/store/useSettingsStore';
+import { buildDynamicPlayerGradient } from '@/utils/colorUtils';
 import { hexWithAlpha } from '@/utils/format';
 
 /**
@@ -29,6 +31,7 @@ const MiniPlayerProgress = React.memo(function MiniPlayerProgress() {
 
 export const MiniPlayer = React.memo(function MiniPlayer() {
   const router = useRouter();
+  const theme = useAppTheme();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const activeDeviceName = usePlayerStore((s) => s.activeDeviceName);
@@ -37,8 +40,15 @@ export const MiniPlayer = React.memo(function MiniPlayer() {
   if (!currentTrack) return null;
 
   const bgTint = currentTrack.dominantColor
-    ? hexWithAlpha(currentTrack.dominantColor, 0.92)
-    : '#3A1D21';
+    ? hexWithAlpha(
+        buildDynamicPlayerGradient(
+          currentTrack.dominantColor,
+          theme.miniPlayerDefault,
+          theme.background
+        ).top,
+        0.96
+      )
+    : theme.miniPlayerDefault;
 
   return (
     <Pressable

@@ -78,7 +78,6 @@ export function mapArchiveDoc(doc: ArchiveDoc): Track {
     artworkUrl: `https://archive.org/services/img/${encodeURIComponent(doc.identifier)}`,
     isDownloadable: true,
     license: doc.licenseurl ? 'Creative Commons / Public Domain' : 'Internet Archive Audio',
-    dominantColor: '#2E3A59',
   };
 }
 

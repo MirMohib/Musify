@@ -43,7 +43,6 @@ export function mapRadioStation(item: RadioStationDto): Track {
     isDownloadable: false,
     license: 'Live Broadcast Stream',
     genre: firstTag,
-    dominantColor: '#4A2545',
   };
 }
 

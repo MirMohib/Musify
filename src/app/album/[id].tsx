@@ -92,7 +92,7 @@ export default function AlbumScreen() {
   const albumTitle = firstTrack?.album || decodedTitle || 'Collection';
   const artistName = firstTrack?.artist || decodedArtist || 'Various Artists';
   const artistId = firstTrack?.artistId || artistName;
-  const dominantColor = firstTrack?.dominantColor || Palette.playerGradientTop;
+  const dominantColor = firstTrack?.dominantColor || theme.surfaceElevated;
 
   const isAlbumPlaying = isPlaying && tracks.some((t) => t.id === currentTrack?.id);
   const allLiked = tracks.length > 0 && tracks.every((t) => likedTrackIds.includes(t.id));

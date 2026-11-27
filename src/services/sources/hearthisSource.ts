@@ -59,7 +59,6 @@ export function mapHearThisTrack(item: HearThisTrackDto): Track {
     isDownloadable: Boolean(downloadable && streamUrl),
     license: item.license || (downloadable ? 'Artist Download Enabled (HearThis)' : 'Streaming Only (HearThis)'),
     genre: item.genre || undefined,
-    dominantColor: '#1E3A5F',
   };
 }
 

@@ -1,9 +1,13 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { MiniPlayer } from '@/components/MiniPlayer';
+import { AddToPlaylistModal } from '@/components/PlaylistModal';
+import { SleepTimerSheet } from '@/components/SleepTimerSheet';
 import { SongTile } from '@/components/SongTile';
 import { useDownloadStore } from '@/store/useDownloadStore';
+import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
 import type { Track } from '@/types/music';
 
@@ -37,6 +41,11 @@ const SAMPLE_TRACK: Track = {
   artist: 'Stellardrone',
   durationMs: 185000,
   isDownloadable: true,
+};
+
+const TEST_METRICS = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 44, left: 0, right: 0, bottom: 34 },
 };
 
 describe('UI components', () => {
@@ -75,5 +84,51 @@ describe('UI components', () => {
     });
     await rerender(<MiniPlayer />);
     expect(queryByText('Solar Echoes')).toBeNull();
+  });
+
+  it('renders Saved in bottom sheet with Liked Songs and playlists', async () => {
+    useLibraryStore.setState({
+      likedTrackIds: [SAMPLE_TRACK.id],
+      playlists: [
+        {
+          id: 'pl-1',
+          name: 'Night Vibes',
+          owner: 'You',
+          trackIds: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    const { getByText } = await render(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <AddToPlaylistModal visible track={SAMPLE_TRACK} onClose={jest.fn()} />
+      </SafeAreaProvider>
+    );
+
+    expect(getByText('Saved in')).toBeTruthy();
+    expect(getByText('New playlist')).toBeTruthy();
+    expect(getByText('Liked Songs')).toBeTruthy();
+    expect(getByText('Night Vibes')).toBeTruthy();
+  });
+
+  it('renders SleepTimerSheet options including End of track', async () => {
+    const onClose = jest.fn();
+    usePlayerStore.setState({ sleepTimerMode: 'off', sleepTimerEndsAt: null });
+
+    const { getByText } = await render(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <SleepTimerSheet visible onClose={onClose} />
+      </SafeAreaProvider>
+    );
+
+    expect(getByText('Sleep timer')).toBeTruthy();
+    expect(getByText('5 minutes')).toBeTruthy();
+    expect(getByText('End of track')).toBeTruthy();
+
+    await fireEvent.press(getByText('End of track'));
+    expect(usePlayerStore.getState().sleepTimerMode).toBe('end_of_track');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

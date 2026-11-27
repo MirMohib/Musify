@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   FlatList,
   Platform,
@@ -11,8 +12,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SleepTimerSheet } from '@/components/SleepTimerSheet';
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { FontFamily, Palette, Spacing } from '@/constants/theme';
+import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { usePlayerStore } from '@/store/usePlayerStore';
 import { useAppTheme } from '@/store/useSettingsStore';
 
@@ -26,180 +28,278 @@ export default function QueueScreen() {
   const currentIndex = usePlayerStore((s) => s.currentIndex);
   const contextTitle = usePlayerStore((s) => s.contextTitle);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const shuffle = usePlayerStore((s) => s.shuffle);
+  const sleepTimerMode = usePlayerStore((s) => s.sleepTimerMode);
 
   const playTrack = usePlayerStore((s) => s.playTrack);
   const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
-  const next = usePlayerStore((s) => s.next);
-  const previous = usePlayerStore((s) => s.previous);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const moveQueueItem = usePlayerStore((s) => s.moveQueueItem);
   const removeFromQueue = usePlayerStore((s) => s.removeFromQueue);
   const clearUpcomingQueue = usePlayerStore((s) => s.clearUpcomingQueue);
+
+  const [timerOpen, setTimerOpen] = useState(false);
 
   const upcoming = queue
     .map((track, idx) => ({ track, idx }))
     .filter(({ idx }) => idx > currentIndex);
 
+  const sheetBg = theme.isDark ? '#1B1B1B' : theme.surface;
+  const tileBg = theme.isDark ? '#2A2A2A' : theme.surfaceElevated;
+  const timerActive = sleepTimerMode !== 'off';
+
   return (
-    <View style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 8 }]}>
-      {/* Header matching Figma Album Radio 1:254 */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.closeCircle} hitSlop={10}>
-          <Ionicons name="close" size={20} color={Palette.white} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerKicker, { color: theme.textSecondary }]}>
-            Playing from
-          </Text>
-          <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-            {contextTitle || 'Queue'}
-          </Text>
-        </View>
-        <Pressable onPress={clearUpcomingQueue} hitSlop={10}>
-          <Text style={styles.clearBtn}>Clear</Text>
-        </Pressable>
-      </View>
-
-      <FlatList
-        data={upcoming}
-        keyExtractor={({ track, idx }) => `${track.id}-${idx}`}
-        windowSize={7}
-        maxToRenderPerBatch={8}
-        initialNumToRender={10}
-        removeClippedSubviews={Platform.OS !== 'web'}
-        ListHeaderComponent={
-          <View style={styles.headerSection}>
-            <Text style={[styles.sectionHeading, { color: theme.text }]}>Now Playing</Text>
-            {currentTrack && (
-              <View style={styles.nowPlayingRow}>
-                <TrackArtwork
-                  artworkUrl={currentTrack.artworkUrl}
-                  localArtworkUri={currentTrack.localArtworkUri}
-                  artworkAsset={currentTrack.artworkAsset}
-                  dominantColor={currentTrack.dominantColor}
-                  size={48}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.nowTitle, { color: Palette.brandGreen }]} numberOfLines={1}>
-                    {currentTrack.title}
-                  </Text>
-                  <Text style={[styles.nowSub, { color: theme.textSecondary }]} numberOfLines={1}>
-                    {currentTrack.artist}
-                  </Text>
-                </View>
-              </View>
-            )}
-            <Text style={[styles.sectionHeading, { color: theme.text, marginTop: 18 }]}>
-              Next From: {contextTitle || 'Queue'}
-            </Text>
-          </View>
-        }
-        ListEmptyComponent={
-          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-            No upcoming tracks in queue. Add tracks from Search or Track Options.
-          </Text>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.queueRow}>
-            <Pressable
-              onPress={() => playTrack(item.track, queue, contextTitle)}
-              style={styles.queueMain}
-            >
-              <TrackArtwork
-                artworkUrl={item.track.artworkUrl}
-                localArtworkUri={item.track.localArtworkUri}
-                artworkAsset={item.track.artworkAsset}
-                size={42}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.qTitle, { color: theme.text }]} numberOfLines={1}>
-                  {item.track.title}
-                </Text>
-                <Text style={[styles.qSub, { color: theme.textSecondary }]} numberOfLines={1}>
-                  {item.track.artist}
-                </Text>
-              </View>
-            </Pressable>
-
-            <View style={styles.reorderGroup}>
-              <Pressable
-                onPress={() => moveQueueItem(item.idx, Math.max(currentIndex + 1, item.idx - 1))}
-                hitSlop={8}
-              >
-                <Ionicons name="chevron-up" size={18} color={theme.textSecondary} />
-              </Pressable>
-              <Pressable
-                onPress={() => moveQueueItem(item.idx, Math.min(queue.length - 1, item.idx + 1))}
-                hitSlop={8}
-              >
-                <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-              </Pressable>
-              <Pressable onPress={() => removeFromQueue(item.idx)} hitSlop={8}>
-                <Ionicons name="close-circle-outline" size={19} color={theme.textSecondary} />
-              </Pressable>
-            </View>
-          </View>
-        )}
+    <View style={styles.backdrop}>
+      <Pressable
+        style={styles.dismissArea}
+        onPress={() => router.back()}
+        accessibilityLabel="Close queue"
       />
 
-      {/* Footer transport controls matching Figma 145:1687 */}
       <View
         style={[
-          styles.footerControls,
+          styles.sheet,
           {
-            paddingBottom: Math.max(insets.bottom, 16),
-            borderTopColor: theme.border,
-            backgroundColor: theme.background,
+            backgroundColor: sheetBg,
+            paddingBottom: Math.max(insets.bottom, 14),
           },
         ]}
       >
-        <Pressable onPress={previous} hitSlop={10}>
-          <Ionicons name="play-skip-back" size={26} color={theme.text} />
-        </Pressable>
-        <Pressable onPress={togglePlayPause} style={styles.playCircle}>
-          <Ionicons
-            name={isPlaying ? 'pause' : 'play'}
-            size={28}
-            color="#121212"
-            style={!isPlaying ? { marginLeft: 2 } : undefined}
-          />
-        </Pressable>
-        <Pressable onPress={next} hitSlop={10}>
-          <Ionicons name="play-skip-forward" size={26} color={theme.text} />
-        </Pressable>
+        <View
+          style={[
+            styles.handle,
+            { backgroundColor: theme.isDark ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.22)' },
+          ]}
+        />
+
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Queue</Text>
+            <Text style={[styles.headerSub, { color: theme.textSecondary }]} numberOfLines={1}>
+              Playing {contextTitle || currentTrack?.album || 'Queue'}
+            </Text>
+          </View>
+
+          {upcoming.length > 0 && (
+            <Pressable onPress={clearUpcomingQueue} hitSlop={10}>
+              <Text style={styles.clearBtn}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
+
+        <FlatList
+          data={upcoming}
+          keyExtractor={({ track, idx }) => `${track.id}-${idx}`}
+          windowSize={7}
+          maxToRenderPerBatch={8}
+          initialNumToRender={10}
+          removeClippedSubviews={Platform.OS !== 'web'}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <View style={styles.headerSection}>
+              {currentTrack && (
+                <View style={styles.nowPlayingRow}>
+                  <TrackArtwork
+                    artworkUrl={currentTrack.artworkUrl}
+                    localArtworkUri={currentTrack.localArtworkUri}
+                    artworkAsset={currentTrack.artworkAsset}
+                    dominantColor={currentTrack.dominantColor}
+                    size={46}
+                    borderRadius={4}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.nowTitle, { color: Palette.brandGreen }]} numberOfLines={1}>
+                      {currentTrack.title}
+                    </Text>
+                    <Text style={[styles.nowSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {currentTrack.artist}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      togglePlayPause();
+                    }}
+                    style={[
+                      styles.nowPlayBtn,
+                      { backgroundColor: theme.isDark ? Palette.white : theme.text },
+                    ]}
+                    accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+                  >
+                    <Ionicons
+                      name={isPlaying ? 'pause' : 'play'}
+                      size={18}
+                      color={theme.isDark ? '#121212' : Palette.white}
+                      style={!isPlaying ? { marginLeft: 2 } : undefined}
+                    />
+                  </Pressable>
+                </View>
+              )}
+
+              <View style={styles.nextHeaderRow}>
+                {shuffle && (
+                  <Ionicons name="shuffle" size={16} color={theme.textSecondary} />
+                )}
+                <Text style={[styles.sectionHeading, { color: theme.textSecondary }]}>
+                  {shuffle ? 'Shuffling from:' : `Next from: ${contextTitle || 'Queue'}`}
+                </Text>
+              </View>
+            </View>
+          }
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+              No upcoming tracks in queue. Add tracks from Search or Track Options.
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.queueRow}>
+              <Pressable
+                onPress={() => playTrack(item.track, queue, contextTitle)}
+                style={styles.queueMain}
+              >
+                <TrackArtwork
+                  artworkUrl={item.track.artworkUrl}
+                  localArtworkUri={item.track.localArtworkUri}
+                  artworkAsset={item.track.artworkAsset}
+                  dominantColor={item.track.dominantColor}
+                  size={44}
+                  borderRadius={4}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.qTitle, { color: theme.text }]} numberOfLines={1}>
+                    {item.track.title}
+                  </Text>
+                  <Text style={[styles.qSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                    {item.track.artist}
+                  </Text>
+                </View>
+              </Pressable>
+
+              <View style={styles.reorderGroup}>
+                <Pressable
+                  onPress={() => moveQueueItem(item.idx, Math.max(currentIndex + 1, item.idx - 1))}
+                  hitSlop={8}
+                  accessibilityLabel="Move track up"
+                >
+                  <Ionicons name="chevron-up" size={18} color={theme.textSecondary} />
+                </Pressable>
+                <Pressable
+                  onPress={() => moveQueueItem(item.idx, Math.min(queue.length - 1, item.idx + 1))}
+                  hitSlop={8}
+                  accessibilityLabel="Move track down"
+                >
+                  <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                </Pressable>
+                <Pressable
+                  onPress={() => removeFromQueue(item.idx)}
+                  hitSlop={8}
+                  accessibilityLabel="Remove from queue"
+                >
+                  <Ionicons name="reorder-three" size={22} color={theme.textSecondary} />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        />
+
+        {/* Sticky Bottom Shuffle + Timer Bar */}
+        <View style={[styles.bottomBar, { borderTopColor: theme.border }]}>
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              toggleShuffle();
+            }}
+            style={[styles.bottomCardBtn, { backgroundColor: tileBg }]}
+            accessibilityLabel={shuffle ? 'Disable shuffle' : 'Enable shuffle'}
+          >
+            <Ionicons
+              name="shuffle"
+              size={22}
+              color={shuffle ? Palette.brandGreen : theme.text}
+            />
+            <Text
+              style={[
+                styles.bottomBtnLabel,
+                { color: shuffle ? Palette.brandGreen : theme.textSecondary },
+              ]}
+            >
+              Shuffle
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              Haptics.selectionAsync().catch(() => {});
+              setTimerOpen(true);
+            }}
+            style={[styles.bottomCardBtn, { backgroundColor: tileBg }]}
+            accessibilityLabel="Sleep timer"
+          >
+            <Ionicons
+              name="timer-outline"
+              size={22}
+              color={timerActive ? Palette.brandGreen : theme.text}
+            />
+            <Text
+              style={[
+                styles.bottomBtnLabel,
+                { color: timerActive ? Palette.brandGreen : theme.textSecondary },
+              ]}
+            >
+              Timer
+            </Text>
+          </Pressable>
+        </View>
       </View>
+
+      <SleepTimerSheet
+        visible={timerOpen}
+        onClose={() => setTimerOpen(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    justifyContent: 'flex-end',
+  },
+  dismissArea: {
+    flex: 1,
+  },
+  sheet: {
+    height: '76%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 10,
+    overflow: 'hidden',
+  },
+  handle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  closeCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#282828',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
-  },
-  headerKicker: {
-    fontFamily: FontFamily.medium,
-    fontSize: 11,
+    paddingBottom: Spacing.sm,
   },
   headerTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 14,
+    fontSize: 22,
+  },
+  headerSub: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13.5,
+    marginTop: 2,
   },
   clearBtn: {
     fontFamily: FontFamily.semiBold,
@@ -208,19 +308,14 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.sm,
-  },
-  sectionHeading: {
-    fontFamily: FontFamily.bold,
-    fontSize: 15,
-    marginBottom: Spacing.sm,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
   nowPlayingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   nowTitle: {
     fontFamily: FontFamily.bold,
@@ -231,11 +326,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  nowPlayBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  nextHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  sectionHeading: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13.5,
+  },
   queueRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
   queueMain: {
     flex: 1,
@@ -255,7 +369,7 @@ const styles = StyleSheet.create({
   reorderGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     marginLeft: 8,
   },
   emptyText: {
@@ -264,20 +378,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: Spacing.xxl,
   },
-  footerControls: {
+  bottomBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 38,
-    paddingTop: 14,
+    gap: 10,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  playCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: Palette.white,
+  bottomCardBtn: {
+    flex: 1,
+    height: 60,
+    borderRadius: Radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
+  },
+  bottomBtnLabel: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 12,
   },
 });

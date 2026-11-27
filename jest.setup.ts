@@ -166,3 +166,16 @@ jest.mock('expo-media-library', () => {
 jest.mock('expo-document-picker', () => ({
   getDocumentAsync: jest.fn(async () => ({ canceled: true, assets: [] })),
 }));
+
+jest.mock('expo-device', () => ({
+  deviceName: 'This Phone',
+  modelName: 'This Phone',
+}));
+
+jest.mock('react-native-webview', () => {
+  const RN = jest.requireActual('react-native');
+  return {
+    __esModule: true,
+    default: RN.View,
+  };
+});

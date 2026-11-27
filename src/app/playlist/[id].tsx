@@ -138,7 +138,7 @@ export default function PlaylistDetailScreen() {
   const firstTrack = rawTracks[0];
   const gradientTop = isLikedView
     ? Palette.likedGradientStart
-    : firstTrack?.dominantColor ?? '#285245';
+    : firstTrack?.dominantColor ?? theme.surfaceElevated;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>

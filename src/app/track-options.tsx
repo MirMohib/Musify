@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddToPlaylistModal } from '@/components/PlaylistModal';
+import { SleepTimerSheet } from '@/components/SleepTimerSheet';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Spacing } from '@/constants/theme';
 import { isTrackDownloadable } from '@/services/sources/sourceRegistry';
@@ -37,15 +38,18 @@ export default function TrackOptionsScreen() {
   const removeTrackFromPlaylist = useLibraryStore((s) => s.removeTrackFromPlaylist);
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const repeatMode = usePlayerStore((s) => s.repeatMode);
+  const sleepTimerMode = usePlayerStore((s) => s.sleepTimerMode);
   const addToQueue = usePlayerStore((s) => s.addToQueue);
   const playTrack = usePlayerStore((s) => s.playTrack);
-  const setSleepTimer = usePlayerStore((s) => s.setSleepTimer);
+  const cycleRepeatMode = usePlayerStore((s) => s.cycleRepeatMode);
 
   const downloads = useDownloadStore((s) => s.downloads);
   const downloadTrack = useDownloadStore((s) => s.downloadTrack);
   const deleteDownload = useDownloadStore((s) => s.deleteDownload);
 
   const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
+  const [showSleepTimer, setShowSleepTimer] = useState(false);
 
   const track = (trackId ? tracksById[trackId] : undefined) ?? currentTrack;
 
@@ -189,17 +193,16 @@ export default function TrackOptionsScreen() {
       },
     },
     {
-      icon: 'moon-outline',
-      label: 'Sleep timer',
-      onPress: () => {
-        Alert.alert('Sleep Timer', 'Stop audio automatically after:', [
-          { text: '15 minutes', onPress: () => setSleepTimer(15) },
-          { text: '30 minutes', onPress: () => setSleepTimer(30) },
-          { text: '1 hour', onPress: () => setSleepTimer(60) },
-          { text: 'Turn off', style: 'destructive', onPress: () => setSleepTimer(null) },
-          { text: 'Cancel', style: 'cancel' },
-        ]);
-      },
+      icon: 'repeat',
+      label: `Repeat: ${repeatMode === 'off' ? 'Off' : repeatMode === 'all' ? 'All' : 'One'}`,
+      color: repeatMode !== 'off' ? Palette.brandGreen : theme.text,
+      onPress: () => cycleRepeatMode(),
+    },
+    {
+      icon: 'timer-outline',
+      label: sleepTimerMode === 'off' ? 'Sleep timer' : 'Sleep timer (Active)',
+      color: sleepTimerMode !== 'off' ? Palette.brandGreen : theme.text,
+      onPress: () => setShowSleepTimer(true),
     },
   ];
 
@@ -256,6 +259,11 @@ export default function TrackOptionsScreen() {
         visible={showPlaylistPicker}
         track={track}
         onClose={() => setShowPlaylistPicker(false)}
+      />
+
+      <SleepTimerSheet
+        visible={showSleepTimer}
+        onClose={() => setShowSleepTimer(false)}
       />
     </View>
   );

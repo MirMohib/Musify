@@ -48,7 +48,7 @@ export function SeekSlider({ positionMs, durationMs, onSeek }: SeekSliderProps) 
     setBarWidth(e.nativeEvent.layout.width);
   };
 
-  const thumbSize = isSeeking ? 16 : 13;
+  const thumbSize = isSeeking ? 14 : 10;
   const thumbLeft = Math.max(0, Math.min(barWidth - thumbSize, ratio * barWidth - thumbSize / 2));
 
   return (
@@ -74,7 +74,7 @@ export function SeekSlider({ positionMs, durationMs, onSeek }: SeekSliderProps) 
               height: thumbSize,
               borderRadius: thumbSize / 2,
               left: thumbLeft,
-              top: (28 - thumbSize) / 2,
+              top: (26 - thumbSize) / 2,
             },
           ]}
         />
@@ -95,19 +95,19 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   touchArea: {
-    height: 28,
+    height: 26,
     justifyContent: 'center',
   },
   trackBg: {
-    height: 4,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.28)',
+    height: 3.5,
+    borderRadius: 3.5,
+    backgroundColor: 'rgba(255,255,255,0.24)',
     overflow: 'hidden',
   },
   trackFill: {
     height: '100%',
     backgroundColor: Palette.white,
-    borderRadius: 4,
+    borderRadius: 3.5,
   },
   thumb: {
     position: 'absolute',
@@ -116,11 +116,12 @@ const styles = StyleSheet.create({
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 2,
+    marginTop: 1,
   },
   timeText: {
     fontFamily: FontFamily.medium,
-    fontSize: 11,
-    color: Palette.neutral01,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.72)',
+    fontVariant: ['tabular-nums'],
   },
 });

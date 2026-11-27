@@ -167,4 +167,22 @@ describe('usePlayerStore & useLibraryStore', () => {
     expect(useLibraryStore.getState().likedTrackIds).not.toContain(TRACK_1.id);
     spy.mockRestore();
   });
+
+  it('supports end-of-track sleep timer and track color updates', () => {
+    usePlayerStore.getState().setSleepTimer(15);
+    expect(usePlayerStore.getState().sleepTimerMode).toBe('duration');
+    expect(usePlayerStore.getState().sleepTimerEndsAt).not.toBeNull();
+
+    usePlayerStore.getState().setSleepTimerEndOfTrack();
+    expect(usePlayerStore.getState().sleepTimerMode).toBe('end_of_track');
+    expect(usePlayerStore.getState().sleepTimerEndsAt).toBeNull();
+
+    usePlayerStore.getState().setSleepTimer(null);
+    expect(usePlayerStore.getState().sleepTimerMode).toBe('off');
+
+    usePlayerStore.setState({ currentTrack: TRACK_1, queue: [TRACK_1, TRACK_2] });
+    usePlayerStore.getState().updateTrackColor(TRACK_1.id, '#123456');
+    expect(usePlayerStore.getState().currentTrack?.dominantColor).toBe('#123456');
+    expect(usePlayerStore.getState().queue[0]?.dominantColor).toBe('#123456');
+  });
 });

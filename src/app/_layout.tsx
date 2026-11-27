@@ -116,8 +116,9 @@ export default function RootLayout() {
         <Stack.Screen
           name="queue"
           options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
+            presentation: 'transparentModal',
+            animation: 'fade',
+            contentStyle: { backgroundColor: 'transparent' },
           }}
         />
         <Stack.Screen
@@ -144,8 +145,9 @@ export default function RootLayout() {
         <Stack.Screen
           name="devices"
           options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
+            presentation: 'transparentModal',
+            animation: 'fade',
+            contentStyle: { backgroundColor: 'transparent' },
           }}
         />
         <Stack.Screen
