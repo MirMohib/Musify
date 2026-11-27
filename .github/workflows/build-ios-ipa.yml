@@ -12,18 +12,14 @@ jobs:
 
       - name: Select latest Xcode (Swift 6.2+)
         run: |
-          ls -d /Applications/Xcode*.app
           XCODE_26=$(ls -d /Applications/Xcode_26*.app /Applications/Xcode-26*.app 2>/dev/null | sort -V | tail -n 1)
           if [ -n "$XCODE_26" ]; then
-            echo "Selecting $XCODE_26"
             sudo xcode-select -s "$XCODE_26/Contents/Developer"
           else
             LATEST_XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
-            echo "Selecting $LATEST_XCODE"
             sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
           fi
           xcodebuild -version
-          swift --version
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,21 +30,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Patch ExpoModulesJSI Swift 6.2 concurrency
+      - name: Force Swift 5 mode in ExpoModulesJSI build script
         run: |
-          node -e '
-            const fs = require("fs");
-            const file = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift";
-            if (fs.existsSync(file)) {
-              let code = fs.readFileSync(file, "utf8");
-              code = code.replace(
-                "try encode(JavaScriptValue.Slot(slot), runtime)",
-                "nonisolated(unsafe) let safeSlot = slot; try encode(JavaScriptValue.Slot(safeSlot), runtime)"
-              );
-              fs.writeFileSync(file, code);
-              console.log("Patched JavaScriptObject.swift successfully.");
-            }
-          '
+          find node_modules/expo-modules-jsi -type f \( -name "*.sh" -o -name "*.podspec" -o -name "Package.swift" \) -exec sed -i '' 's/xcodebuild /xcodebuild SWIFT_VERSION=5.0 SWIFT_STRICT_CONCURRENCY=minimal /g' {} +
 
       - name: Expo Prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
@@ -72,6 +56,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/Musify.xcarchive \
             archive \
+            SWIFT_VERSION=5.0 \
             SWIFT_STRICT_CONCURRENCY=minimal \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
