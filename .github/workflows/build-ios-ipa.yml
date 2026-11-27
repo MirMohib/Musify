@@ -6,10 +6,6 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-15
-    env:
-      EXPO_USE_SOURCE: '1'
-      RCT_USE_PREBUILT_RNCORE: '0'
-      RCT_USE_RN_DEP: '0'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,6 +56,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/Musify.xcarchive \
             archive \
+            SWIFT_STRICT_CONCURRENCY=minimal \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="-" \
