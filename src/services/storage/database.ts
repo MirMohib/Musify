@@ -46,6 +46,7 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       artwork_asset INTEGER,
       stream_url TEXT,
       local_uri TEXT,
+      local_artwork_uri TEXT,
       is_downloadable INTEGER NOT NULL DEFAULT 0,
       license TEXT,
       explicit INTEGER NOT NULL DEFAULT 0,
@@ -94,6 +95,7 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       bytes_written INTEGER NOT NULL DEFAULT 0,
       total_bytes INTEGER NOT NULL DEFAULT 0,
       local_uri TEXT,
+      local_artwork_uri TEXT,
       resume_state_json TEXT,
       error TEXT,
       created_at INTEGER NOT NULL,
@@ -115,6 +117,19 @@ async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       value TEXT NOT NULL
     );
   `);
+
+  // Safe schema migrations for existing installs
+  try {
+    await db.execAsync('ALTER TABLE tracks ADD COLUMN local_artwork_uri TEXT;');
+  } catch {
+    // Column already exists
+  }
+  try {
+    await db.execAsync('ALTER TABLE downloads ADD COLUMN local_artwork_uri TEXT;');
+  } catch {
+    // Column already exists
+  }
+
   return db;
 }
 
@@ -130,6 +145,7 @@ interface TrackRow {
   year: number | null;
   duration_ms: number;
   artwork_url: string | null;
+  local_artwork_uri: string | null;
   artwork_asset: number | null;
   stream_url: string | null;
   local_uri: string | null;
@@ -154,6 +170,7 @@ function rowToTrack(row: TrackRow): Track {
     year: row.year ?? undefined,
     durationMs: row.duration_ms,
     artworkUrl: row.artwork_url ?? undefined,
+    localArtworkUri: row.local_artwork_uri ?? undefined,
     artworkAsset: row.artwork_asset ?? undefined,
     streamUrl: row.stream_url ?? undefined,
     localUri: row.local_uri ?? undefined,
@@ -171,15 +188,16 @@ export async function upsertTrack(track: Track): Promise<void> {
   await db.runAsync(
     `INSERT INTO tracks (
       id, source_id, source_track_id, title, artist, artist_id, album, album_id,
-      year, duration_ms, artwork_url, artwork_asset, stream_url, local_uri,
+      year, duration_ms, artwork_url, local_artwork_uri, artwork_asset, stream_url, local_uri,
       is_downloadable, license, explicit, genre, dominant_color, lyrics_preview, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       artist = excluded.artist,
       album = COALESCE(excluded.album, tracks.album),
       duration_ms = CASE WHEN excluded.duration_ms > 0 THEN excluded.duration_ms ELSE tracks.duration_ms END,
       artwork_url = COALESCE(excluded.artwork_url, tracks.artwork_url),
+      local_artwork_uri = COALESCE(excluded.local_artwork_uri, tracks.local_artwork_uri),
       artwork_asset = COALESCE(excluded.artwork_asset, tracks.artwork_asset),
       stream_url = COALESCE(excluded.stream_url, tracks.stream_url),
       local_uri = COALESCE(excluded.local_uri, tracks.local_uri),
@@ -199,6 +217,7 @@ export async function upsertTrack(track: Track): Promise<void> {
       track.year ?? null,
       track.durationMs,
       track.artworkUrl ?? null,
+      track.localArtworkUri ?? null,
       track.artworkAsset ?? null,
       track.streamUrl ?? null,
       track.localUri ?? null,
@@ -381,6 +400,7 @@ export async function getDownloadsDb(): Promise<DownloadRecord[]> {
     bytes_written: number;
     total_bytes: number;
     local_uri: string | null;
+    local_artwork_uri: string | null;
     resume_state_json: string | null;
     error: string | null;
     created_at: number;
@@ -394,6 +414,7 @@ export async function getDownloadsDb(): Promise<DownloadRecord[]> {
     bytesWritten: r.bytes_written,
     totalBytes: r.total_bytes,
     localUri: r.local_uri ?? undefined,
+    localArtworkUri: r.local_artwork_uri ?? undefined,
     resumeStateJson: r.resume_state_json ?? undefined,
     error: r.error ?? undefined,
     createdAt: r.created_at,
@@ -405,14 +426,15 @@ export async function upsertDownloadDb(record: DownloadRecord): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
     `INSERT INTO downloads (
-      track_id, status, progress, bytes_written, total_bytes, local_uri, resume_state_json, error, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      track_id, status, progress, bytes_written, total_bytes, local_uri, local_artwork_uri, resume_state_json, error, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(track_id) DO UPDATE SET
       status = excluded.status,
       progress = excluded.progress,
       bytes_written = excluded.bytes_written,
       total_bytes = excluded.total_bytes,
       local_uri = excluded.local_uri,
+      local_artwork_uri = COALESCE(excluded.local_artwork_uri, downloads.local_artwork_uri),
       resume_state_json = excluded.resume_state_json,
       error = excluded.error,
       updated_at = excluded.updated_at`,
@@ -423,6 +445,7 @@ export async function upsertDownloadDb(record: DownloadRecord): Promise<void> {
       record.bytesWritten,
       record.totalBytes,
       record.localUri ?? null,
+      record.localArtworkUri ?? null,
       record.resumeStateJson ?? null,
       record.error ?? null,
       record.createdAt,
@@ -513,6 +536,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   themeMode: 'dark',
   explicitContent: true,
   dataSaver: false,
+  customApiUrl: '',
+  customApiDownloadable: true,
 };
 
 export const DEFAULT_PROFILE: UserProfile = {

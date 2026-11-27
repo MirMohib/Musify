@@ -9,6 +9,7 @@ interface PlaylistCardProps {
   title: string;
   subtitle?: string;
   artworkUrl?: string;
+  localArtworkUri?: string;
   artworkAsset?: number;
   dominantColor?: string;
   size?: number;
@@ -20,6 +21,7 @@ export const PlaylistCard = React.memo(function PlaylistCard({
   title,
   subtitle,
   artworkUrl,
+  localArtworkUri,
   artworkAsset,
   dominantColor,
   size = 148,
@@ -39,6 +41,7 @@ export const PlaylistCard = React.memo(function PlaylistCard({
     >
       <TrackArtwork
         artworkUrl={artworkUrl}
+        localArtworkUri={localArtworkUri}
         artworkAsset={artworkAsset}
         dominantColor={dominantColor}
         size={size}

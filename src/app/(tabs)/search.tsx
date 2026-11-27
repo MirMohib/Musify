@@ -19,6 +19,7 @@ import { SongListSkeleton } from '@/components/SkeletonLoader';
 import { SongTile } from '@/components/SongTile';
 import { BROWSE_GENRES, type BrowseGenre } from '@/data/seedCatalog';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
+import { customApiSourceProvider } from '@/services/sources/customApiSource';
 import { jamendoSourceProvider } from '@/services/sources/jamendoSource';
 import { searchAllSources } from '@/services/sources/sourceRegistry';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -30,8 +31,11 @@ import type { MusicSourceId, Track } from '@/types/music';
 const SOURCE_FILTERS: { id: MusicSourceId | 'all'; label: string }[] = [
   { id: 'all', label: 'All Sources' },
   { id: 'audius', label: 'Audius' },
+  { id: 'hearthis', label: 'HearThis' },
+  { id: 'radio', label: 'Radio' },
   { id: 'archive', label: 'Archive' },
   { id: 'jamendo', label: 'Jamendo' },
+  { id: 'custom', label: 'Custom' },
   { id: 'local', label: 'Device' },
 ];
 
@@ -227,7 +231,9 @@ export default function SearchScreen() {
         >
           {SOURCE_FILTERS.map((f) => {
             const active = sourceFilter === f.id;
-            const unconfigured = f.id === 'jamendo' && !jamendoSourceProvider.isConfigured();
+            const unconfigured =
+              (f.id === 'jamendo' && !jamendoSourceProvider.isConfigured()) ||
+              (f.id === 'custom' && !customApiSourceProvider.isConfigured());
             return (
               <Pressable
                 key={f.id}
@@ -258,10 +264,22 @@ export default function SearchScreen() {
           <View style={[styles.infoBanner, { backgroundColor: theme.surfaceElevated }]}>
             <Text style={[styles.infoText, { color: theme.textSecondary }]}>
               Set <Text style={{ color: theme.text }}>EXPO_PUBLIC_JAMENDO_CLIENT_ID</Text> in{' '}
-              <Text style={{ color: theme.text }}>.env</Text> to search Jamendo. Audius, Internet
-              Archive &amp; Device Music work immediately.
+              <Text style={{ color: theme.text }}>.env</Text> to search Jamendo. Audius, HearThis,
+              Radio, Internet Archive &amp; Device Music work immediately.
             </Text>
           </View>
+        )}
+
+        {sourceFilter === 'custom' && !customApiSourceProvider.isConfigured() && (
+          <Pressable
+            onPress={() => router.push('/settings')}
+            style={[styles.infoBanner, { backgroundColor: theme.surfaceElevated }]}
+          >
+            <Text style={[styles.infoText, { color: theme.textSecondary }]}>
+              No custom audio server URL set. Tap here to configure your{' '}
+              <Text style={{ color: Palette.brandGreen }}>Custom Audio Server</Text> in Settings.
+            </Text>
+          </Pressable>
         )}
 
         {query.trim().length === 0 ? (
@@ -276,8 +294,8 @@ export default function SearchScreen() {
             </View>
             {recentSearches.length === 0 ? (
               <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
-                Search millions of free Creative Commons tracks across Audius, Internet Archive,
-                Jamendo, and your device.
+                Search free tracks, mixes, and live stations across Audius, HearThis.at, Radio
+                Browser, Internet Archive, Jamendo, your custom server, and this device.
               </Text>
             ) : (
               recentSearches.map((item) => (

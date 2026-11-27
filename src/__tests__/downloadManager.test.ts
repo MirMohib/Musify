@@ -2,6 +2,7 @@ import { DownloadTask, File } from 'expo-file-system';
 
 import {
   getDownloadedStorageBytes,
+  inferAudioExtensionFromUrlOrMime,
   pauseTrackDownload,
   removeTrackDownload,
   resumeTrackDownload,
@@ -156,9 +157,10 @@ describe('downloadManager', () => {
       (rec) => updates.push(rec)
     );
 
-    // Wait a tick for downloadAsync to begin
-    await Promise.resolve();
-    await Promise.resolve();
+    // Wait until downloadAsync starts after async extension detection & DB upserts
+    for (let i = 0; i < 15 && !resolveDownload; i += 1) {
+      await Promise.resolve();
+    }
 
     await pauseTrackDownload(DOWNLOADABLE_TRACK.id, updates[updates.length - 1], (rec) =>
       updates.push(rec)
@@ -210,5 +212,73 @@ describe('downloadManager', () => {
     const total = getDownloadedStorageBytes(records);
     expect(typeof total).toBe('number');
     expect(total).toBeGreaterThanOrEqual(0);
+  });
+
+  describe('extension detection & offline artwork caching', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('preserves audio extension from stream URL or Content-Type MIME header', () => {
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/track.m4a?token=abc')).toBe('.m4a');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/track.ogg')).toBe('.ogg');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/track.wav')).toBe('.wav');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/stream/123', 'audio/mp4')).toBe('.m4a');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/stream/123', 'audio/ogg; codecs=opus')).toBe('.ogg');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/stream/123', 'audio/x-wav')).toBe('.wav');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/stream/123', 'audio/mpeg')).toBe('.mp3');
+      expect(inferAudioExtensionFromUrlOrMime('https://cdn.test/stream/123')).toBe('.mp3');
+    });
+
+    it('uses HEAD Content-Type extension and caches cover artwork locally for offline playback', async () => {
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        headers: {
+          get: (key: string) => (key.toLowerCase() === 'content-type' ? 'audio/mp4' : null),
+        },
+      })) as unknown as typeof fetch;
+
+      const MockDownloadTask = DownloadTask as unknown as jest.Mock;
+      // 1st task: audio download (extensionless URL resolved to .m4a via HEAD)
+      // 2nd task: cover artwork download into musify_artwork/
+      MockDownloadTask.mockImplementation((_url: string, dest: File) => ({
+        state: 'idle',
+        downloadAsync: jest.fn(async () => {
+          (dest as unknown as { exists: boolean; size: number }).exists = true;
+          (dest as unknown as { size: number }).size = 4096;
+          return dest;
+        }),
+        pauseAsync: jest.fn(),
+        resumeAsync: jest.fn(),
+        cancel: jest.fn(),
+        release: jest.fn(),
+        savable: jest.fn(),
+      }));
+
+      const trackWithArtwork: Track = {
+        ...DOWNLOADABLE_TRACK,
+        id: 'custom:extless-42',
+        sourceId: 'custom',
+        sourceTrackId: 'extless-42',
+        streamUrl: 'https://my-server.test/stream/extless-42',
+        artworkUrl: 'https://my-server.test/art/extless-42.jpg',
+      };
+
+      const record = await startTrackDownload(trackWithArtwork, DEFAULT_SETTINGS, {}, jest.fn());
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://my-server.test/stream/extless-42',
+        expect.objectContaining({ method: 'HEAD' })
+      );
+      expect(record.status).toBe('completed');
+      expect(record.localUri).toMatch(/\.m4a$/);
+      expect(record.localArtworkUri).toMatch(/musify_artwork\//);
+      expect(record.localArtworkUri).toMatch(/\.jpg$/);
+
+      await removeTrackDownload(trackWithArtwork.id, record);
+      expect(db.deleteDownloadDb).toHaveBeenCalledWith(trackWithArtwork.id);
+    });
   });
 });

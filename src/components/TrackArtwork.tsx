@@ -9,6 +9,7 @@ import type { Track } from '@/types/music';
 
 interface TrackArtworkProps {
   artworkUrl?: string;
+  localArtworkUri?: string;
   artworkAsset?: number;
   dominantColor?: string;
   size: number;
@@ -20,6 +21,7 @@ interface TrackArtworkProps {
 
 export const TrackArtwork = React.memo(function TrackArtwork({
   artworkUrl,
+  localArtworkUri,
   artworkAsset,
   dominantColor,
   size,
@@ -29,14 +31,15 @@ export const TrackArtwork = React.memo(function TrackArtwork({
   style,
 }: TrackArtworkProps) {
   const radius = circular ? size / 2 : borderRadius;
-  const source = artworkUrl ? { uri: artworkUrl } : artworkAsset;
+  const resolvedUri = localArtworkUri || artworkUrl;
+  const source = resolvedUri ? { uri: resolvedUri } : artworkAsset;
 
   if (source) {
     return (
       <Image
         source={source}
         cachePolicy="memory-disk"
-        recyclingKey={artworkUrl ?? String(artworkAsset)}
+        recyclingKey={resolvedUri ?? String(artworkAsset)}
         style={[
           {
             width: size,

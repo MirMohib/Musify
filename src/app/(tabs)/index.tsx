@@ -177,6 +177,7 @@ export default function HomeScreen() {
               title={track.title}
               subtitle={track.artist}
               artworkUrl={track.artworkUrl}
+              localArtworkUri={track.localArtworkUri}
               dominantColor={track.dominantColor}
               size={112}
               onPress={() => playTrack(track, recentTracks, 'Recently played')}
@@ -406,6 +407,40 @@ export default function HomeScreen() {
               )}
           </View>
         )}
+
+      {/* HearThis.at Indie Mixes & Tracks */}
+      {!offlineOnly && discoveryFeed.hearthisTracks.length > 0 && (
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+              HearThis.at Mixes &amp; Sets
+            </Text>
+            <Text style={[styles.liveTag, { backgroundColor: '#1E3264', color: '#FFFFFF' }]}>
+              HEARTHIS
+            </Text>
+          </View>
+          {discoveryFeed.hearthisTracks
+            .slice(0, 5)
+            .map((t) => renderTrackRow(t, discoveryFeed.hearthisTracks, 'HearThis.at Popular'))}
+        </View>
+      )}
+
+      {/* Live Global Radio Stations */}
+      {!offlineOnly && discoveryFeed.radioTracks.length > 0 && (
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+              Live Global Radio
+            </Text>
+            <Text style={[styles.liveTag, { backgroundColor: '#B49BC8', color: '#121212' }]}>
+              ON AIR
+            </Text>
+          </View>
+          {discoveryFeed.radioTracks
+            .slice(0, 5)
+            .map((t) => renderTrackRow(t, discoveryFeed.radioTracks, 'Live Radio'))}
+        </View>
+      )}
 
       {/* Device Music Preview */}
       {localTracks.length > 0 && (

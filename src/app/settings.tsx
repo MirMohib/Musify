@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +41,34 @@ export default function SettingsScreen() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const resetToOnboarding = useSettingsStore((s) => s.resetToOnboarding);
   const totalBytesUsed = useDownloadStore((s) => s.totalBytesUsed);
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customUrlDraft, setCustomUrlDraft] = useState(settings.customApiUrl);
+  const [customAllowDlDraft, setCustomAllowDlDraft] = useState(settings.customApiDownloadable);
+
+  const openCustomServerModal = () => {
+    setCustomUrlDraft(settings.customApiUrl);
+    setCustomAllowDlDraft(settings.customApiDownloadable);
+    setCustomModalOpen(true);
+  };
+
+  const saveCustomServer = async () => {
+    const trimmed = customUrlDraft.trim().replace(/\/+$/, '');
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      Alert.alert('Invalid URL', 'Enter a valid http:// or https:// base URL.');
+      return;
+    }
+    await updateSettings({
+      customApiUrl: trimmed,
+      customApiDownloadable: customAllowDlDraft,
+    });
+    setCustomModalOpen(false);
+  };
+
+  const clearCustomServer = async () => {
+    setCustomUrlDraft('');
+    await updateSettings({ customApiUrl: '' });
+    setCustomModalOpen(false);
+  };
 
   const cycleQuality = (kind: 'audioQuality' | 'downloadQuality') => {
     const current = settings[kind];
@@ -126,6 +156,13 @@ export default function SettingsScreen() {
       onPress: () => updateSettings({ explicitContent: !settings.explicitContent }),
     },
     {
+      label: 'Custom Audio Server',
+      value: settings.customApiUrl
+        ? `${settings.customApiUrl} · ${settings.customApiDownloadable ? 'Downloads on' : 'Stream only'}`
+        : 'Not configured (tap to set REST API URL)',
+      onPress: openCustomServerModal,
+    },
+    {
       label: 'Devices',
       value: 'Output & Group Session',
       onPress: () => router.push('/devices'),
@@ -211,6 +248,67 @@ export default function SettingsScreen() {
       </ScrollView>
 
       <DockedMiniPlayerFooter />
+
+      <Modal
+        visible={customModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCustomModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.surfaceElevated }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              Custom Audio Server
+            </Text>
+            <Text style={[styles.modalSub, { color: theme.textSecondary }]}>
+              Enter a self-hosted REST API base URL implementing /search?q= and /stream/{'{id}'}.
+              Leave empty to disable.
+            </Text>
+            <TextInput
+              value={customUrlDraft}
+              onChangeText={setCustomUrlDraft}
+              placeholder="https://music.example.com/api"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              style={[
+                styles.modalInput,
+                { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface },
+              ]}
+            />
+            <View style={styles.modalSwitchRow}>
+              <Text style={[styles.modalSwitchLabel, { color: theme.text }]}>
+                Allow Offline Downloads
+              </Text>
+              <Switch
+                value={customAllowDlDraft}
+                onValueChange={setCustomAllowDlDraft}
+                trackColor={{ false: '#555', true: Palette.brandGreen }}
+                thumbColor={Palette.white}
+              />
+            </View>
+            <View style={styles.modalActions}>
+              {settings.customApiUrl ? (
+                <Pressable onPress={clearCustomServer} style={styles.modalBtn}>
+                  <Text style={{ color: '#FF6B6B', fontFamily: FontFamily.semiBold }}>Clear</Text>
+                </Pressable>
+              ) : null}
+              <Pressable onPress={() => setCustomModalOpen(false)} style={styles.modalBtn}>
+                <Text style={{ color: theme.textSecondary, fontFamily: FontFamily.semiBold }}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={saveCustomServer}
+                style={[styles.modalSaveBtn, { backgroundColor: Palette.brandGreen }]}
+              >
+                <Text style={{ color: '#121212', fontFamily: FontFamily.bold }}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -262,5 +360,59 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     fontSize: 12.5,
     marginTop: 2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  modalCard: {
+    borderRadius: 12,
+    padding: Spacing.xl,
+    gap: 12,
+  },
+  modalTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
+  },
+  modalSub: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: FontFamily.regular,
+    fontSize: 14,
+  },
+  modalSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  modalSwitchLabel: {
+    fontFamily: FontFamily.medium,
+    fontSize: 14,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 6,
+  },
+  modalBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  modalSaveBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 20,
   },
 });

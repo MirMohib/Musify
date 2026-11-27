@@ -1,7 +1,9 @@
 /**
  * Offline download manager built on expo-file-system's DownloadTask (with native pause/resume)
  * and SQLite metadata persistence.
- * Enforces provider download permission (isTrackDownloadable) and storage limits.
+ * - Enforces provider download permission (isTrackDownloadable) and storage limits.
+ * - Preserves audio extensions (.m4a, .mp3, .ogg, .wav, etc.) via URL & MIME type inspection.
+ * - Caches track cover artwork locally for full offline rendering.
  */
 
 import { Directory, DownloadTask, File, Paths } from 'expo-file-system';
@@ -15,6 +17,7 @@ import {
 import type { AppSettings, DownloadRecord, Track } from '@/types/music';
 
 const DOWNLOADS_DIR_NAME = 'musify_downloads';
+const ARTWORK_DIR_NAME = 'musify_artwork';
 
 type ProgressCallback = (record: DownloadRecord) => void;
 
@@ -29,11 +32,107 @@ function getDownloadDirectory(location: AppSettings['downloadLocation']): Direct
   return dir;
 }
 
-function sanitizeFilename(track: Track): string {
-  const slug = `${track.sourceId}_${track.sourceTrackId}_${track.title}`
+function getArtworkDirectory(location: AppSettings['downloadLocation']): Directory {
+  const base = location === 'cache' ? Paths.cache : Paths.document;
+  const dir = new Directory(base, ARTWORK_DIR_NAME);
+  if (!dir.exists) {
+    dir.create({ intermediates: true, idempotent: true });
+  }
+  return dir;
+}
+
+function sanitizeSlug(track: Track): string {
+  return `${track.sourceId}_${track.sourceTrackId}_${track.title}`
     .replace(/[^a-zA-Z0-9_-]/g, '_')
     .slice(0, 64);
-  return `${slug}.mp3`;
+}
+
+const KNOWN_AUDIO_EXTS = ['.m4a', '.mp4', '.mp3', '.ogg', '.opus', '.wav', '.flac', '.aac'] as const;
+
+export function inferAudioExtensionFromUrlOrMime(url: string, contentType?: string | null): string {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    for (const ext of KNOWN_AUDIO_EXTS) {
+      if (pathname.endsWith(ext)) {
+        return ext === '.mp4' ? '.m4a' : ext;
+      }
+    }
+  } catch {
+    const lower = url.split('?')[0].toLowerCase();
+    for (const ext of KNOWN_AUDIO_EXTS) {
+      if (lower.endsWith(ext)) {
+        return ext === '.mp4' ? '.m4a' : ext;
+      }
+    }
+  }
+
+  const mime = (contentType ?? '').toLowerCase().split(';')[0].trim();
+  if (mime === 'audio/mp4' || mime === 'audio/x-m4a' || mime === 'audio/m4a') return '.m4a';
+  if (mime === 'audio/ogg' || mime === 'application/ogg' || mime === 'audio/opus') return '.ogg';
+  if (mime === 'audio/wav' || mime === 'audio/x-wav' || mime === 'audio/wave') return '.wav';
+  if (mime === 'audio/flac' || mime === 'audio/x-flac') return '.flac';
+  if (mime === 'audio/aac' || mime === 'audio/x-aac') return '.aac';
+  if (mime === 'audio/mpeg' || mime === 'audio/mp3') return '.mp3';
+
+  return '.mp3';
+}
+
+async function detectAudioExtension(url: string): Promise<string> {
+  const fromUrl = inferAudioExtensionFromUrlOrMime(url);
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (KNOWN_AUDIO_EXTS.some((ext) => pathname.endsWith(ext))) {
+      return fromUrl;
+    }
+  } catch {
+    // proceed to HEAD probe
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      return inferAudioExtensionFromUrlOrMime(url, res.headers.get('content-type'));
+    }
+  } catch {
+    // Fallback cleanly to default .mp3 if HEAD is blocked or times out
+  }
+
+  return fromUrl;
+}
+
+async function cacheTrackArtwork(
+  track: Track,
+  location: AppSettings['downloadLocation']
+): Promise<string | undefined> {
+  if (track.localArtworkUri) {
+    try {
+      const existing = new File(track.localArtworkUri);
+      if (existing.exists) return track.localArtworkUri;
+    } catch {
+      // re-download below
+    }
+  }
+  if (!track.artworkUrl) return undefined;
+
+  try {
+    const dir = getArtworkDirectory(location);
+    const lowerUrl = track.artworkUrl.split('?')[0].toLowerCase();
+    const ext = lowerUrl.endsWith('.png') ? '.png' : lowerUrl.endsWith('.webp') ? '.webp' : '.jpg';
+    const artFile = new File(dir, `${sanitizeSlug(track)}${ext}`);
+    try {
+      if (artFile.exists) artFile.delete();
+    } catch {
+      // ignore
+    }
+    const artTask = new DownloadTask(track.artworkUrl, artFile);
+    const saved = await artTask.downloadAsync();
+    return saved?.uri ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -92,10 +191,19 @@ export async function startTrackDownload(
     throw new Error(`No downloadable audio URL available for "${track.title}".`);
   }
 
-  await upsertTrack(track);
+  const [ext, localArtworkUri] = await Promise.all([
+    detectAudioExtension(downloadUrl),
+    cacheTrackArtwork(track, settings.downloadLocation),
+  ]);
+
+  const trackWithOfflineArt: Track = localArtworkUri
+    ? { ...track, localArtworkUri }
+    : track;
+
+  await upsertTrack(trackWithOfflineArt);
 
   const dir = getDownloadDirectory(settings.downloadLocation);
-  const destFile = new File(dir, sanitizeFilename(track));
+  const destFile = new File(dir, `${sanitizeSlug(track)}${ext}`);
   try {
     if (destFile.exists) {
       destFile.delete();
@@ -111,6 +219,7 @@ export async function startTrackDownload(
     progress: 0,
     bytesWritten: 0,
     totalBytes: 0,
+    localArtworkUri,
     createdAt: currentDownloads[track.id]?.createdAt ?? now,
     updatedAt: now,
   };
@@ -152,16 +261,17 @@ export async function startTrackDownload(
         bytesWritten: finalBytes,
         totalBytes: record.totalBytes || finalBytes,
         localUri: completedFile.uri,
+        localArtworkUri,
         resumeStateJson: undefined,
         error: undefined,
         updatedAt: Date.now(),
       };
       await upsertDownloadDb(record);
+      await upsertTrack({ ...trackWithOfflineArt, localUri: completedFile.uri });
       onUpdate(record);
       return record;
     }
 
-    // Null means task was paused
     const savable = task.savable();
     record = {
       ...record,
@@ -293,6 +403,11 @@ export async function resumeTrackDownload(
         updatedAt: Date.now(),
       };
       await upsertDownloadDb(done);
+      await upsertTrack({
+        ...track,
+        localUri: file.uri,
+        localArtworkUri: activeRec.localArtworkUri ?? track.localArtworkUri,
+      });
       onUpdate(done);
     }
   } catch (err) {
@@ -325,9 +440,10 @@ export async function removeTrackDownload(
     }
     activeTasks.delete(trackId);
   }
-  if (record?.localUri) {
+  for (const uri of [record?.localUri, record?.localArtworkUri]) {
+    if (!uri) continue;
     try {
-      const file = new File(record.localUri);
+      const file = new File(uri);
       if (file.exists) {
         file.delete();
       }

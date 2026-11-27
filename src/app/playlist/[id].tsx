@@ -188,6 +188,7 @@ export default function PlaylistDetailScreen() {
             ) : (
               <TrackArtwork
                 artworkUrl={playlist?.artworkUrl ?? firstTrack?.artworkUrl}
+                localArtworkUri={firstTrack?.localArtworkUri}
                 dominantColor={gradientTop}
                 size={236}
                 borderRadius={4}

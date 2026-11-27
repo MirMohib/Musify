@@ -127,7 +127,11 @@ export default function AlbumOptionsScreen() {
         ]}
       >
         <View style={styles.hero}>
-          <TrackArtwork artworkUrl={tracks[0]?.artworkUrl} size={164} />
+          <TrackArtwork
+            artworkUrl={tracks[0]?.artworkUrl}
+            localArtworkUri={tracks[0]?.localArtworkUri}
+            size={164}
+          />
           <Text style={[styles.title, { color: theme.text }]}>{albumTitle}</Text>
           <Text style={[styles.artist, { color: theme.textSecondary }]}>
             {artistName}

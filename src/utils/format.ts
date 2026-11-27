@@ -34,6 +34,12 @@ export function getSourceLabel(sourceId: MusicSourceId): string {
       return 'Jamendo';
     case 'archive':
       return 'Archive';
+    case 'hearthis':
+      return 'HearThis';
+    case 'radio':
+      return 'Radio';
+    case 'custom':
+      return 'Custom';
     case 'seeded':
     default:
       return 'Musify';

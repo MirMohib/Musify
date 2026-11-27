@@ -146,6 +146,7 @@ export default function FullPlayerScreen() {
         <View style={[styles.artworkWrap, Shadows.artwork]}>
           <TrackArtwork
             artworkUrl={currentTrack.artworkUrl}
+            localArtworkUri={currentTrack.localArtworkUri}
             artworkAsset={currentTrack.artworkAsset}
             dominantColor={currentTrack.dominantColor}
             size={artSize}

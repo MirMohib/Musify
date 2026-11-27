@@ -218,6 +218,7 @@ export default function TrackOptionsScreen() {
         <View style={styles.hero}>
           <TrackArtwork
             artworkUrl={track.artworkUrl}
+            localArtworkUri={track.localArtworkUri}
             artworkAsset={track.artworkAsset}
             dominantColor={track.dominantColor}
             size={164}

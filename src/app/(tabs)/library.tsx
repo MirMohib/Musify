@@ -165,6 +165,7 @@ export default function LibraryScreen() {
       >
         <TrackArtwork
           artworkUrl={pl.artworkUrl ?? firstTrack?.artworkUrl}
+          localArtworkUri={firstTrack?.localArtworkUri}
           dominantColor={firstTrack?.dominantColor}
           size={64}
           borderRadius={4}

@@ -111,6 +111,7 @@ export default function ShareScreen() {
         <View style={[styles.artWrap, Shadows.artwork]}>
           <TrackArtwork
             artworkUrl={track.artworkUrl}
+            localArtworkUri={track.localArtworkUri}
             artworkAsset={track.artworkAsset}
             dominantColor={track.dominantColor}
             size={218}

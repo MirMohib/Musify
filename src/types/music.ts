@@ -129,6 +129,8 @@ export interface AppSettings {
   themeMode: ThemeMode;
   explicitContent: boolean;
   dataSaver: boolean;
+  customApiUrl: string;
+  customApiDownloadable: boolean;
 }
 
 export interface SearchResults {

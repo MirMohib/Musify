@@ -50,6 +50,7 @@ export const MiniPlayer = React.memo(function MiniPlayer() {
       <View style={styles.contentRow}>
         <TrackArtwork
           artworkUrl={currentTrack.artworkUrl}
+          localArtworkUri={currentTrack.localArtworkUri}
           artworkAsset={currentTrack.artworkAsset}
           dominantColor={currentTrack.dominantColor}
           size={38}

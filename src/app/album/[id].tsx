@@ -145,6 +145,7 @@ export default function AlbumScreen() {
           <View style={[styles.coverWrap, Shadows.artwork]}>
             <TrackArtwork
               artworkUrl={firstTrack?.artworkUrl}
+              localArtworkUri={firstTrack?.localArtworkUri}
               dominantColor={dominantColor}
               size={228}
               borderRadius={4}
@@ -162,7 +163,12 @@ export default function AlbumScreen() {
             }
             style={styles.artistRow}
           >
-            <TrackArtwork artworkUrl={firstTrack?.artworkUrl} size={22} circular />
+            <TrackArtwork
+              artworkUrl={firstTrack?.artworkUrl}
+              localArtworkUri={firstTrack?.localArtworkUri}
+              size={22}
+              circular
+            />
             <Text style={styles.artistName}>{artistName}</Text>
             <Ionicons name="chevron-forward" size={14} color={Palette.mutedText} />
           </Pressable>

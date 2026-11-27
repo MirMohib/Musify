@@ -8,6 +8,7 @@ import {
   startTrackDownload,
 } from '@/services/downloads/downloadManager';
 import { getDownloadsDb } from '@/services/storage/database';
+import { useLibraryStore } from '@/store/useLibraryStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { DownloadRecord, Track } from '@/types/music';
 
@@ -32,6 +33,18 @@ function toMap(records: DownloadRecord[]): Record<string, DownloadRecord> {
 
 export const useDownloadStore = create<DownloadState>((set, get) => {
   const applyRecord = (record: DownloadRecord) => {
+    if (record.status === 'completed' && (record.localArtworkUri || record.localUri)) {
+      const existingTrack = useLibraryStore.getState().tracksById[record.trackId];
+      if (existingTrack) {
+        useLibraryStore.getState().registerTracks([
+          {
+            ...existingTrack,
+            localUri: record.localUri ?? existingTrack.localUri,
+            localArtworkUri: record.localArtworkUri ?? existingTrack.localArtworkUri,
+          },
+        ]);
+      }
+    }
     set((state) => {
       const next = { ...state.downloads };
       if (record.status === 'cancelled') {

@@ -1,5 +1,6 @@
 /**
- * Unified MusicSource registry aggregating Local, Jamendo, Audius, and Internet Archive.
+ * Unified MusicSource registry aggregating Local, Audius, Jamendo, Internet Archive,
+ * HearThis.at, Radio Browser, and Custom Audio Endpoint.
  * Resolves playable URIs with offline-first priority (downloaded file -> local URI -> stream URL).
  */
 
@@ -7,8 +8,11 @@ import { File } from 'expo-file-system';
 
 import { archiveSourceProvider } from '@/services/sources/archiveSource';
 import { audiusSourceProvider } from '@/services/sources/audiusSource';
+import { customApiSourceProvider } from '@/services/sources/customApiSource';
+import { hearthisSourceProvider } from '@/services/sources/hearthisSource';
 import { jamendoSourceProvider } from '@/services/sources/jamendoSource';
 import { localSourceProvider } from '@/services/sources/localSource';
+import { radioSourceProvider } from '@/services/sources/radioSource';
 import type { MusicSourceProvider } from '@/services/sources/types';
 import { upsertTracks } from '@/services/storage/database';
 import type { AppSettings, DownloadRecord, MusicSourceId, Track } from '@/types/music';
@@ -18,6 +22,9 @@ const PROVIDERS: Record<Exclude<MusicSourceId, 'seeded'>, MusicSourceProvider> =
   audius: audiusSourceProvider,
   jamendo: jamendoSourceProvider,
   archive: archiveSourceProvider,
+  hearthis: hearthisSourceProvider,
+  radio: radioSourceProvider,
+  custom: customApiSourceProvider,
 };
 
 export function getProvider(sourceId: MusicSourceId): MusicSourceProvider | null {
@@ -121,7 +128,7 @@ export async function searchAllSources(
     })
   );
 
-  // Interleave results across sources so users see local + Audius + Jamendo + Archive together
+  // Interleave results across sources so users see diverse sources together
   const merged: Track[] = [];
   const maxLen = Math.max(0, ...results.map((r) => r.length));
   for (let i = 0; i < maxLen; i++) {
@@ -141,23 +148,38 @@ export interface DiscoveryFeed {
   audiusTracks: Track[];
   jamendoTracks: Track[];
   archiveTracks: Track[];
+  hearthisTracks: Track[];
+  radioTracks: Track[];
   allTracks: Track[];
 }
 
 export async function fetchDiscoveryFeed(): Promise<DiscoveryFeed> {
-  const [audiusTracks, jamendoTracks, archiveTracks] = await Promise.all([
-    audiusSourceProvider.getTrending
-      ? audiusSourceProvider.getTrending(12).catch(() => [])
-      : Promise.resolve([]),
-    jamendoSourceProvider.isConfigured() && jamendoSourceProvider.getTrending
-      ? jamendoSourceProvider.getTrending(10).catch(() => [])
-      : Promise.resolve([]),
-    archiveSourceProvider.getTrending
-      ? archiveSourceProvider.getTrending(10).catch(() => [])
-      : Promise.resolve([]),
-  ]);
+  const [audiusTracks, jamendoTracks, archiveTracks, hearthisTracks, radioTracks] =
+    await Promise.all([
+      audiusSourceProvider.getTrending
+        ? audiusSourceProvider.getTrending(10).catch(() => [])
+        : Promise.resolve([]),
+      jamendoSourceProvider.isConfigured() && jamendoSourceProvider.getTrending
+        ? jamendoSourceProvider.getTrending(8).catch(() => [])
+        : Promise.resolve([]),
+      archiveSourceProvider.getTrending
+        ? archiveSourceProvider.getTrending(8).catch(() => [])
+        : Promise.resolve([]),
+      hearthisSourceProvider.getTrending
+        ? hearthisSourceProvider.getTrending(8).catch(() => [])
+        : Promise.resolve([]),
+      radioSourceProvider.getTrending
+        ? radioSourceProvider.getTrending(6).catch(() => [])
+        : Promise.resolve([]),
+    ]);
 
-  const allTracks = [...audiusTracks, ...jamendoTracks, ...archiveTracks];
+  const allTracks = [
+    ...audiusTracks,
+    ...hearthisTracks,
+    ...jamendoTracks,
+    ...archiveTracks,
+    ...radioTracks,
+  ];
   if (allTracks.length > 0) {
     upsertTracks(allTracks).catch(() => {});
   }
@@ -166,6 +188,8 @@ export async function fetchDiscoveryFeed(): Promise<DiscoveryFeed> {
     audiusTracks,
     jamendoTracks,
     archiveTracks,
+    hearthisTracks,
+    radioTracks,
     allTracks,
   };
 }

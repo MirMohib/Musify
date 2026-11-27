@@ -73,6 +73,7 @@ export default function QueueScreen() {
               <View style={styles.nowPlayingRow}>
                 <TrackArtwork
                   artworkUrl={currentTrack.artworkUrl}
+                  localArtworkUri={currentTrack.localArtworkUri}
                   artworkAsset={currentTrack.artworkAsset}
                   dominantColor={currentTrack.dominantColor}
                   size={48}
@@ -105,6 +106,7 @@ export default function QueueScreen() {
             >
               <TrackArtwork
                 artworkUrl={item.track.artworkUrl}
+                localArtworkUri={item.track.localArtworkUri}
                 artworkAsset={item.track.artworkAsset}
                 size={42}
               />

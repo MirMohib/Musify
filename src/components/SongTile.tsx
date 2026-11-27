@@ -101,6 +101,7 @@ export const SongTile = React.memo(function SongTile({
       {showArtwork && (
         <TrackArtwork
           artworkUrl={track.artworkUrl}
+          localArtworkUri={track.localArtworkUri}
           artworkAsset={track.artworkAsset}
           dominantColor={track.dominantColor}
           size={48}

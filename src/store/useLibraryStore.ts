@@ -70,6 +70,8 @@ const EMPTY_FEED: DiscoveryFeed = {
   audiusTracks: [],
   jamendoTracks: [],
   archiveTracks: [],
+  hearthisTracks: [],
+  radioTracks: [],
   allTracks: [],
 };
 

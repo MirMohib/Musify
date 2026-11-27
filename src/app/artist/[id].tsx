@@ -129,6 +129,7 @@ export default function ArtistScreen() {
           <View style={styles.avatarRow}>
             <TrackArtwork
               artworkUrl={heroTrack?.artworkUrl}
+              localArtworkUri={heroTrack?.localArtworkUri}
               dominantColor={heroTrack?.dominantColor}
               size={136}
               circular

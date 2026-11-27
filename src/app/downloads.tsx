@@ -126,7 +126,11 @@ export default function DownloadsScreen() {
                   key={rec.trackId}
                   style={[styles.dlRow, { backgroundColor: theme.surface }]}
                 >
-                  <TrackArtwork artworkUrl={track.artworkUrl} size={46} />
+                  <TrackArtwork
+                    artworkUrl={track.artworkUrl}
+                    localArtworkUri={rec.localArtworkUri ?? track.localArtworkUri}
+                    size={46}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.dlTitle, { color: theme.text }]} numberOfLines={1}>
                       {track.title}
@@ -191,7 +195,11 @@ export default function DownloadsScreen() {
                   onPress={() => playTrack(track, completedTracks, 'Downloads')}
                   style={styles.completedRow}
                 >
-                  <TrackArtwork artworkUrl={track.artworkUrl} size={48} />
+                  <TrackArtwork
+                    artworkUrl={track.artworkUrl}
+                    localArtworkUri={rec.localArtworkUri ?? track.localArtworkUri}
+                    size={48}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text
                       style={[
