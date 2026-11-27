@@ -6,6 +6,10 @@ on:
 jobs:
   build-ipa:
     runs-on: macos-15
+    env:
+      EXPO_USE_SOURCE: '1'
+      RCT_USE_PREBUILT_RNCORE: '0'
+      RCT_USE_RN_DEP: '0'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,8 +49,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="-" \
             DEVELOPMENT_TEAM="" > xcodebuild.log 2>&1; then
-            echo "=== XCODEBUILD FAILED - LAST 80 LINES ==="
-            tail -n 80 xcodebuild.log
+            echo "=== XCODEBUILD ERROR DETAILS ==="
+            grep -E "error:|fatal error:|Command PhaseScriptExecution failed" -B 10 -A 5 xcodebuild.log | tail -n 80
             exit 1
           fi
 
