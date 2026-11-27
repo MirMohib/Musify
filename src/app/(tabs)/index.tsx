@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -13,8 +14,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PlaylistCard } from '@/components/PlaylistCard';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { HomeFeedSkeleton } from '@/components/SkeletonLoader';
-import { SongTile } from '@/components/SongTile';
+import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
@@ -22,15 +24,37 @@ import { usePlayerStore } from '@/store/usePlayerStore';
 import { useAppTheme, useSettingsStore } from '@/store/useSettingsStore';
 import type { Track } from '@/types/music';
 
+type HomeFilter = 'all' | 'music' | 'radio' | 'offline';
+
+const HOME_FILTERS: { id: HomeFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'music', label: 'Music' },
+  { id: 'radio', label: 'Radio' },
+  { id: 'offline', label: 'Offline' },
+];
+
+interface QuickTileItem {
+  key: string;
+  title: string;
+  artworkUrl?: string;
+  localArtworkUri?: string;
+  artworkAsset?: number;
+  dominantColor?: string;
+  iconName?: keyof typeof Ionicons.glyphMap;
+  iconBg?: string;
+  isLiked?: boolean;
+  onPress: () => void;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const offlineOnly = useSettingsStore((s) => s.settings.offlineOnly);
+  const openProfileDrawer = useSettingsStore((s) => s.openProfileDrawer);
 
   const tracksById = useLibraryStore((s) => s.tracksById);
   const playlists = useLibraryStore((s) => s.playlists);
-  const likedTrackIds = useLibraryStore((s) => s.likedTrackIds);
   const recentlyPlayedIds = useLibraryStore((s) => s.recentlyPlayedIds);
   const discoveryFeed = useLibraryStore((s) => s.discoveryFeed);
   const isLoadingFeed = useLibraryStore((s) => s.isLoadingFeed);
@@ -39,8 +63,11 @@ export default function HomeScreen() {
   const rescanDeviceMusic = useLibraryStore((s) => s.rescanDeviceMusic);
 
   const downloads = useDownloadStore((s) => s.downloads);
-  const currentTrack = usePlayerStore((s) => s.currentTrack);
   const playTrack = usePlayerStore((s) => s.playTrack);
+
+  const [activeFilter, setActiveFilter] = useState<HomeFilter>(
+    offlineOnly ? 'offline' : 'all'
+  );
 
   const recentTracks = useMemo(
     () => recentlyPlayedIds.map((id) => tracksById[id]).filter(Boolean),
@@ -61,7 +88,83 @@ export default function HomeScreen() {
     [downloads, tracksById]
   );
 
-  // Extract unique artists and albums dynamically from live provider + device tracks
+  const offlinePool = useMemo(
+    () => [...downloadedTracks, ...localTracks],
+    [downloadedTracks, localTracks]
+  );
+
+  const musicTrending = useMemo(
+    () => [...discoveryFeed.audiusTracks, ...discoveryFeed.hearthisTracks],
+    [discoveryFeed.audiusTracks, discoveryFeed.hearthisTracks]
+  );
+
+  const ccTracks = useMemo(
+    () => [...discoveryFeed.jamendoTracks, ...discoveryFeed.archiveTracks],
+    [discoveryFeed.jamendoTracks, discoveryFeed.archiveTracks]
+  );
+
+  // Up to 8 quick-access tiles (2x4 grid) dynamically built from real user data
+  const quickTiles = useMemo<QuickTileItem[]>(() => {
+    const items: QuickTileItem[] = [
+      {
+        key: 'liked',
+        title: 'Liked Songs',
+        isLiked: true,
+        onPress: () => router.push('/playlist/liked'),
+      },
+    ];
+
+    for (const pl of playlists.slice(0, 4)) {
+      const firstTrack = pl.trackIds[0] ? tracksById[pl.trackIds[0]] : undefined;
+      items.push({
+        key: `pl-${pl.id}`,
+        title: pl.name,
+        artworkUrl: pl.artworkUrl ?? firstTrack?.artworkUrl,
+        localArtworkUri: firstTrack?.localArtworkUri,
+        artworkAsset: pl.artworkAsset ?? firstTrack?.artworkAsset,
+        dominantColor: firstTrack?.dominantColor,
+        iconName: 'musical-notes',
+        iconBg: theme.surfaceElevated,
+        onPress: () => router.push(`/playlist/${encodeURIComponent(pl.id)}`),
+      });
+    }
+
+    items.push({
+      key: 'downloads',
+      title: 'Downloads',
+      iconName: 'cloud-done',
+      iconBg: Palette.episodesBg,
+      onPress: () => router.push('/downloads'),
+    });
+
+    items.push({
+      key: 'device',
+      title: 'Device Music',
+      iconName: 'phone-portrait',
+      iconBg: theme.surfaceElevated,
+      onPress: () =>
+        router.push({ pathname: '/(tabs)/library', params: { filter: 'device' } }),
+    });
+
+    for (const t of recentTracks) {
+      if (items.length >= 8) break;
+      items.push({
+        key: `recent-tile-${t.id}`,
+        title: t.title,
+        artworkUrl: t.artworkUrl,
+        localArtworkUri: t.localArtworkUri,
+        artworkAsset: t.artworkAsset,
+        dominantColor: t.dominantColor,
+        iconName: 'musical-note',
+        iconBg: theme.surfaceElevated,
+        onPress: () => playTrack(t, recentTracks, 'Jump back in'),
+      });
+    }
+
+    return items.slice(0, 8);
+  }, [playlists, tracksById, recentTracks, theme.surfaceElevated, router, playTrack]);
+
+  // Unique featured artists from live & local catalog
   const featuredArtists = useMemo(() => {
     const map = new Map<string, { id: string; name: string; artworkUrl?: string; color?: string }>();
     const pool = [...recentTracks, ...discoveryFeed.allTracks, ...localTracks];
@@ -70,32 +173,13 @@ export default function HomeScreen() {
       map.set(t.artist.toLowerCase(), {
         id: t.artistId || t.artist,
         name: t.artist,
-        artworkUrl: t.artworkUrl,
+        artworkUrl: t.localArtworkUri || t.artworkUrl,
         color: t.dominantColor,
       });
       if (map.size >= 10) break;
     }
     return Array.from(map.values());
   }, [recentTracks, discoveryFeed.allTracks, localTracks]);
-
-  const featuredAlbums = useMemo(() => {
-    const map = new Map<string, { id: string; title: string; artist: string; artworkUrl?: string; color?: string }>();
-    const pool = [...discoveryFeed.allTracks, ...localTracks];
-    for (const t of pool) {
-      if (!t.album) continue;
-      const key = t.albumId || t.album;
-      if (map.has(key)) continue;
-      map.set(key, {
-        id: key,
-        title: t.album,
-        artist: t.artist,
-        artworkUrl: t.artworkUrl,
-        color: t.dominantColor,
-      });
-      if (map.size >= 10) break;
-    }
-    return Array.from(map.values());
-  }, [discoveryFeed.allTracks, localTracks]);
 
   const handleRefresh = async () => {
     await Promise.all([
@@ -104,26 +188,55 @@ export default function HomeScreen() {
     ]);
   };
 
-  const renderTrackRow = (track: Track, list: Track[], contextTitle: string) => (
-    <SongTile
-      key={track.id}
-      track={track}
-      isActive={currentTrack?.id === track.id}
-      showSourceBadge
-      showDownloadAction
-      onPress={() => playTrack(track, list, contextTitle)}
-      onMorePress={() =>
-        router.push({ pathname: '/track-options', params: { trackId: track.id } })
-      }
-    />
-  );
+  const renderCardShelf = (
+    title: string,
+    tracks: Track[],
+    contextTitle: string,
+    showLiveIndicator = false
+  ) => {
+    if (tracks.length === 0) return null;
+    return (
+      <View style={styles.sectionBlock}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
+          {showLiveIndicator && isLoadingFeed && (
+            <ActivityIndicator size="small" color={Palette.brandGreen} />
+          )}
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalList}
+        >
+          {tracks.slice(0, 12).map((track) => (
+            <PlaylistCard
+              key={`${contextTitle}-${track.id}`}
+              title={track.title}
+              subtitle={track.artist}
+              artworkUrl={track.artworkUrl}
+              localArtworkUri={track.localArtworkUri}
+              artworkAsset={track.artworkAsset}
+              dominantColor={track.dominantColor}
+              size={150}
+              onPress={() => playTrack(track, tracks, contextTitle)}
+            />
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const effectiveFilter: HomeFilter = offlineOnly ? 'offline' : activeFilter;
+  const showMusic = effectiveFilter === 'all' || effectiveFilter === 'music';
+  const showRadio = effectiveFilter === 'all' || effectiveFilter === 'radio';
+  const showOffline = effectiveFilter === 'all' || effectiveFilter === 'offline';
 
   return (
     <ScrollView
       style={[styles.root, { backgroundColor: theme.backgroundHome }]}
       contentContainerStyle={{
-        paddingTop: insets.top + 12,
-        paddingBottom: 32,
+        paddingTop: insets.top + 10,
+        paddingBottom: 28,
       }}
       refreshControl={
         <RefreshControl
@@ -134,174 +247,116 @@ export default function HomeScreen() {
       }
       showsVerticalScrollIndicator={false}
     >
-      {/* Top Header */}
-      <View style={styles.headerRow}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          {recentTracks.length > 0 ? 'Recently played' : 'Discover on Musify'}
-        </Text>
-        <View style={styles.headerIcons}>
-          <Pressable
-            onPress={() => router.push('/downloads')}
-            hitSlop={10}
-            accessibilityLabel="Downloads and Offline"
-          >
-            <Ionicons name="arrow-down-circle-outline" size={24} color={theme.text} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/queue')}
-            hitSlop={10}
-            accessibilityLabel="Playback Queue"
-          >
-            <Ionicons name="time-outline" size={23} color={theme.text} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            hitSlop={10}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={23} color={theme.text} />
-          </Pressable>
-        </View>
-      </View>
+      {/* Top Bar: Profile Avatar + Filter Pills (matching Spotify Home) */}
+      <View style={styles.topBar}>
+        <ProfileAvatar size={34} onPress={openProfileDrawer} />
 
-      {/* Recently Played Shelf from SQLite */}
-      {recentTracks.length > 0 && (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.horizontalList}
+          contentContainerStyle={styles.filterPillsRow}
         >
-          {recentTracks.slice(0, 12).map((track) => (
-            <PlaylistCard
-              key={`recent-${track.id}`}
-              title={track.title}
-              subtitle={track.artist}
-              artworkUrl={track.artworkUrl}
-              localArtworkUri={track.localArtworkUri}
-              dominantColor={track.dominantColor}
-              size={112}
-              onPress={() => playTrack(track, recentTracks, 'Recently played')}
-            />
-          ))}
+          {HOME_FILTERS.map((f) => {
+            const active = effectiveFilter === f.id;
+            return (
+              <Pressable
+                key={f.id}
+                onPress={() => setActiveFilter(f.id)}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? Palette.brandGreen : theme.surfaceElevated,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    { color: active ? '#121212' : theme.text },
+                  ]}
+                >
+                  {f.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
-      )}
-
-      {/* Quick Access Library Shortcuts (Real SQLite counts) */}
-      <View style={styles.quickGrid}>
-        <Pressable
-          onPress={() => router.push('/playlist/liked')}
-          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: Palette.likedGradientStart }]}>
-            <Ionicons name="heart" size={20} color="#FFFFFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
-              Liked Songs
-            </Text>
-            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
-              {likedTrackIds.length} songs
-            </Text>
-          </View>
-        </Pressable>
-
-        <Pressable
-          onPress={() => router.push('/downloads')}
-          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: Palette.episodesBg }]}>
-            <Ionicons name="cloud-done" size={20} color="#FFFFFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
-              Downloads
-            </Text>
-            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
-              {downloadedTracks.length} offline
-            </Text>
-          </View>
-        </Pressable>
-
-        <Pressable
-          onPress={() => router.push({ pathname: '/(tabs)/library', params: { filter: 'device' } })}
-          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: '#2A4D3E' }]}>
-            <Ionicons name="phone-portrait" size={20} color="#FFFFFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
-              Device Music
-            </Text>
-            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
-              {localTracks.length} local
-            </Text>
-          </View>
-        </Pressable>
-
-        {playlists[0] ? (
-          <Pressable
-            onPress={() => router.push(`/playlist/${encodeURIComponent(playlists[0].id)}`)}
-            style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
-          >
-            <View style={[styles.quickIcon, { backgroundColor: '#3B2667' }]}>
-              <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
-                {playlists[0].name}
-              </Text>
-              <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
-                {playlists[0].trackIds.length} songs
-              </Text>
-            </View>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => router.push('/(tabs)/library')}
-            style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
-          >
-            <View style={[styles.quickIcon, { backgroundColor: '#333333' }]}>
-              <Ionicons name="add" size={22} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
-                Playlists
-              </Text>
-              <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
-                Create or browse
-              </Text>
-            </View>
-          </Pressable>
-        )}
       </View>
 
-      {/* Offline Only View */}
-      {offlineOnly && (
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Available Offline
-          </Text>
-          {[...downloadedTracks, ...localTracks].length === 0 ? (
-            <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
-              No downloaded or local device tracks yet. Disable Offline Only in Downloads/Settings
-              or import local audio files in Your Library.
-            </Text>
-          ) : (
-            [...downloadedTracks, ...localTracks].map((t) =>
-              renderTrackRow(t, [...downloadedTracks, ...localTracks], 'Available Offline')
-            )
-          )}
-        </View>
-      )}
+      {/* 2x4 Compact Quick Access Grid */}
+      <View style={styles.quickGrid}>
+        {quickTiles.map((tile) => (
+          <Pressable
+            key={tile.key}
+            onPress={tile.onPress}
+            style={({ pressed }) => [
+              styles.quickTile,
+              { backgroundColor: theme.surfaceElevated },
+              pressed && { opacity: 0.78 },
+            ]}
+          >
+            {tile.isLiked ? (
+              <LinearGradient
+                colors={[Palette.likedGradientStart, Palette.likedGradientEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.quickThumb}
+              >
+                <Ionicons name="heart" size={20} color="#FFFFFF" />
+              </LinearGradient>
+            ) : tile.artworkUrl || tile.localArtworkUri || tile.artworkAsset ? (
+              <TrackArtwork
+                artworkUrl={tile.artworkUrl}
+                localArtworkUri={tile.localArtworkUri}
+                artworkAsset={tile.artworkAsset}
+                dominantColor={tile.dominantColor}
+                size={54}
+                borderRadius={0}
+              />
+            ) : (
+              <View style={[styles.quickThumb, { backgroundColor: tile.iconBg ?? theme.surface }]}>
+                <Ionicons name={tile.iconName ?? 'musical-notes'} size={20} color="#FFFFFF" />
+              </View>
+            )}
 
-      {/* Skeleton placeholder while initial live feed loads */}
-      {!offlineOnly && isLoadingFeed && discoveryFeed.allTracks.length === 0 && (
+            <View style={styles.quickTitleWrap}>
+              <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={2}>
+                {tile.title}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Loading skeleton while initial remote feed fetches */}
+      {!offlineOnly && showMusic && isLoadingFeed && discoveryFeed.allTracks.length === 0 && (
         <HomeFeedSkeleton />
       )}
 
-      {/* Live Featured Artists */}
-      {!offlineOnly && featuredArtists.length > 0 && (
+      {/* Horizontal Shelves */}
+      {showMusic && renderCardShelf('Trending Now', musicTrending, 'Trending Now', true)}
+
+      {showMusic && renderCardShelf('Jump back in', recentTracks, 'Jump back in')}
+
+      {showMusic && renderCardShelf('Free & Downloadable (CC)', ccTracks, 'Free Creative Commons')}
+
+      {showRadio && renderCardShelf('Live Global Radio', discoveryFeed.radioTracks, 'Live Radio')}
+
+      {showOffline && (
+        offlinePool.length > 0 ? (
+          renderCardShelf('Available Offline', offlinePool, 'Available Offline')
+        ) : effectiveFilter === 'offline' ? (
+          <View style={styles.sectionBlock}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Available Offline</Text>
+            <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
+              No downloaded or local device tracks yet. Download Creative Commons tracks or import local audio files in Your Library.
+            </Text>
+          </View>
+        ) : null
+      )}
+
+      {/* Circular Artists Shelf */}
+      {!offlineOnly && showMusic && featuredArtists.length > 0 && (
         <View style={styles.sectionBlock}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>Artists for you</Text>
           <ScrollView
@@ -315,7 +370,7 @@ export default function HomeScreen() {
                 title={artist.name}
                 artworkUrl={artist.artworkUrl}
                 dominantColor={artist.color}
-                size={112}
+                size={118}
                 circular
                 onPress={() =>
                   router.push({
@@ -328,138 +383,6 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
       )}
-
-      {/* Live Collections / Albums */}
-      {!offlineOnly && featuredAlbums.length > 0 && (
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Popular collections</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalList}
-          >
-            {featuredAlbums.map((alb) => (
-              <PlaylistCard
-                key={alb.id}
-                title={alb.title}
-                subtitle={alb.artist}
-                artworkUrl={alb.artworkUrl}
-                dominantColor={alb.color}
-                size={146}
-                onPress={() =>
-                  router.push({
-                    pathname: '/album/[id]',
-                    params: { id: alb.id, title: alb.title, artist: alb.artist },
-                  })
-                }
-              />
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* Live Audius Trending */}
-      {!offlineOnly && (
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              Trending on Audius
-            </Text>
-            {isLoadingFeed ? (
-              <ActivityIndicator size="small" color={Palette.brandGreen} />
-            ) : (
-              <Text style={styles.liveTag}>LIVE</Text>
-            )}
-          </View>
-
-          {discoveryFeed.audiusTracks.length === 0 && !isLoadingFeed ? (
-            <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
-              Pull down to load trending Audius releases.
-            </Text>
-          ) : (
-            discoveryFeed.audiusTracks
-              .slice(0, 6)
-              .map((t) => renderTrackRow(t, discoveryFeed.audiusTracks, 'Trending on Audius'))
-          )}
-        </View>
-      )}
-
-      {/* Live Internet Archive & Jamendo Free Downloadable Tracks */}
-      {!offlineOnly &&
-        (discoveryFeed.archiveTracks.length > 0 || discoveryFeed.jamendoTracks.length > 0) && (
-          <View style={styles.sectionBlock}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-                Free &amp; Downloadable (CC)
-              </Text>
-              <Text style={[styles.liveTag, { backgroundColor: '#27856B', color: '#FFFFFF' }]}>
-                OFFLINE READY
-              </Text>
-            </View>
-            {[...discoveryFeed.jamendoTracks, ...discoveryFeed.archiveTracks]
-              .slice(0, 8)
-              .map((t) =>
-                renderTrackRow(
-                  t,
-                  [...discoveryFeed.jamendoTracks, ...discoveryFeed.archiveTracks],
-                  'Free Creative Commons'
-                )
-              )}
-          </View>
-        )}
-
-      {/* HearThis.at Indie Mixes & Tracks */}
-      {!offlineOnly && discoveryFeed.hearthisTracks.length > 0 && (
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              HearThis.at Mixes &amp; Sets
-            </Text>
-            <Text style={[styles.liveTag, { backgroundColor: '#1E3264', color: '#FFFFFF' }]}>
-              HEARTHIS
-            </Text>
-          </View>
-          {discoveryFeed.hearthisTracks
-            .slice(0, 5)
-            .map((t) => renderTrackRow(t, discoveryFeed.hearthisTracks, 'HearThis.at Popular'))}
-        </View>
-      )}
-
-      {/* Live Global Radio Stations */}
-      {!offlineOnly && discoveryFeed.radioTracks.length > 0 && (
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              Live Global Radio
-            </Text>
-            <Text style={[styles.liveTag, { backgroundColor: '#B49BC8', color: '#121212' }]}>
-              ON AIR
-            </Text>
-          </View>
-          {discoveryFeed.radioTracks
-            .slice(0, 5)
-            .map((t) => renderTrackRow(t, discoveryFeed.radioTracks, 'Live Radio'))}
-        </View>
-      )}
-
-      {/* Device Music Preview */}
-      {localTracks.length > 0 && (
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
-              On This Device
-            </Text>
-            <Pressable
-              onPress={() =>
-                router.push({ pathname: '/(tabs)/library', params: { filter: 'device' } })
-              }
-            >
-              <Text style={[styles.seeAll, { color: Palette.brandGreen }]}>See all</Text>
-            </Pressable>
-          </View>
-          {localTracks.slice(0, 4).map((t) => renderTrackRow(t, localTracks, 'Device Music'))}
-        </View>
-      )}
     </ScrollView>
   );
 }
@@ -468,58 +391,57 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  headerRow: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
+    gap: 10,
   },
-  headerTitle: {
-    fontFamily: FontFamily.bold,
-    fontSize: 21,
-    letterSpacing: -0.3,
-  },
-  headerIcons: {
+  filterPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 18,
+    gap: 8,
   },
-  horizontalList: {
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
+  filterPill: {
+    paddingHorizontal: 15,
+    paddingVertical: 7,
+    borderRadius: Radii.pill,
+  },
+  filterPillText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
   },
   quickGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    gap: 10,
-    marginTop: Spacing.sm,
+    gap: 8,
   },
   quickTile: {
-    width: '48.5%',
-    height: 56,
-    borderRadius: Radii.md,
+    width: '48.8%',
+    height: 54,
+    borderRadius: Radii.sm,
     flexDirection: 'row',
     alignItems: 'center',
     overflow: 'hidden',
-    paddingRight: 10,
-    gap: 10,
   },
-  quickIcon: {
-    width: 56,
-    height: 56,
+  quickThumb: {
+    width: 54,
+    height: 54,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickTitleWrap: {
+    flex: 1,
+    paddingHorizontal: 10,
     justifyContent: 'center',
   },
   quickTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 13,
-  },
-  quickSub: {
-    fontFamily: FontFamily.medium,
-    fontSize: 11,
+    fontSize: 12.5,
+    lineHeight: 16,
   },
   sectionBlock: {
     marginTop: Spacing.xl,
@@ -529,33 +451,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingRight: Spacing.lg,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   sectionTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 20,
+    fontSize: 21,
     letterSpacing: -0.4,
     paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
   },
-  liveTag: {
-    fontFamily: FontFamily.bold,
-    fontSize: 10,
-    color: '#121212',
-    backgroundColor: Palette.brandGreen,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  seeAll: {
-    fontFamily: FontFamily.semiBold,
-    fontSize: 13,
+  horizontalList: {
+    paddingHorizontal: Spacing.lg,
   },
   emptyHint: {
     fontFamily: FontFamily.regular,
     fontSize: 13.5,
     paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
     lineHeight: 20,
   },
 });

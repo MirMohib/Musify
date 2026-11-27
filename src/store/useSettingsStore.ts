@@ -16,17 +16,21 @@ interface SettingsState {
   settings: AppSettings;
   profile: UserProfile;
   isHydrated: boolean;
+  isProfileDrawerOpen: boolean;
   hydrate: () => Promise<void>;
   updateSettings: (partial: Partial<AppSettings>) => Promise<void>;
   updateProfile: (partial: Partial<UserProfile>) => Promise<void>;
   completeOnboarding: (partial: Partial<UserProfile>) => Promise<void>;
   resetToOnboarding: () => Promise<void>;
+  openProfileDrawer: () => void;
+  closeProfileDrawer: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   profile: DEFAULT_PROFILE,
   isHydrated: false,
+  isProfileDrawerOpen: false,
 
   hydrate: async () => {
     const [savedSettings, savedProfile] = await Promise.all([
@@ -70,6 +74,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ profile: next });
     await setKvJson(PROFILE_KEY, next);
   },
+
+  openProfileDrawer: () => set({ isProfileDrawerOpen: true }),
+  closeProfileDrawer: () => set({ isProfileDrawerOpen: false }),
 }));
 
 export function useAppTheme(): ThemeColors {

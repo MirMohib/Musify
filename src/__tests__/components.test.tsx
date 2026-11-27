@@ -4,12 +4,24 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { MiniPlayer } from '@/components/MiniPlayer';
 import { AddToPlaylistModal } from '@/components/PlaylistModal';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepTimerSheet } from '@/components/SleepTimerSheet';
 import { SongTile } from '@/components/SongTile';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Track } from '@/types/music';
+
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: jest.fn(),
+}));
+
+jest.mock('expo-file-system', () => ({
+  Directory: jest.fn(),
+  File: jest.fn(),
+  Paths: { document: 'file:///docs' },
+}));
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
@@ -75,14 +87,24 @@ describe('UI components', () => {
   });
 
   it('renders MiniPlayer when currentTrack is set and hides when null', async () => {
-    const { getByText, rerender, queryByText } = await render(<MiniPlayer />);
+    const { getByText, getByLabelText, rerender, queryByText } = await render(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <MiniPlayer />
+      </SafeAreaProvider>
+    );
     expect(getByText('Solar Echoes')).toBeTruthy();
-    expect(getByText('THIS PHONE')).toBeTruthy();
+    expect(getByText('Stellardrone')).toBeTruthy();
+    expect(getByLabelText('Connect to a device')).toBeTruthy();
+    expect(getByLabelText('Save to library or playlist')).toBeTruthy();
 
     await act(async () => {
       usePlayerStore.setState({ currentTrack: null });
     });
-    await rerender(<MiniPlayer />);
+    await rerender(
+      <SafeAreaProvider initialMetrics={TEST_METRICS}>
+        <MiniPlayer />
+      </SafeAreaProvider>
+    );
     expect(queryByText('Solar Echoes')).toBeNull();
   });
 
@@ -130,5 +152,22 @@ describe('UI components', () => {
     await fireEvent.press(getByText('End of track'));
     expect(usePlayerStore.getState().sleepTimerMode).toBe('end_of_track');
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders ProfileAvatar with initials fallback when no custom avatarUri is set', async () => {
+    const onPress = jest.fn();
+    useSettingsStore.setState((state) => ({
+      profile: { ...state.profile, name: 'Mohib Ali', avatarUri: undefined },
+    }));
+
+    const { getByText, getByLabelText } = await render(
+      <ProfileAvatar size={40} onPress={onPress} />
+    );
+    const btn = getByLabelText('Open profile menu');
+    expect(btn).toBeTruthy();
+    expect(getByText('MA')).toBeTruthy();
+
+    await fireEvent.press(btn);
+    expect(onPress).toHaveBeenCalledTimes(1);
   });
 });

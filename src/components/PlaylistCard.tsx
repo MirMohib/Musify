@@ -45,7 +45,7 @@ export const PlaylistCard = React.memo(function PlaylistCard({
         artworkAsset={artworkAsset}
         dominantColor={dominantColor}
         size={size}
-        borderRadius={circular ? size / 2 : 2}
+        borderRadius={circular ? size / 2 : 6}
         circular={circular}
       />
       <View style={[styles.textWrap, circular && styles.centerText]}>

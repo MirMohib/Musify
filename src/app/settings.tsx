@@ -15,8 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DockedMiniPlayerFooter } from '@/components/DockedMiniPlayerFooter';
-import { TrackArtwork } from '@/components/TrackArtwork';
-import { FigmaAssets } from '@/constants/figmaAssets';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { FontFamily, Palette, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useAppTheme, useSettingsStore } from '@/store/useSettingsStore';
@@ -208,7 +207,7 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         <Pressable onPress={() => router.push('/profile')} style={styles.profileRow}>
-          <TrackArtwork artworkAsset={FigmaAssets.editors1} size={58} circular />
+          <ProfileAvatar size={56} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.profileName, { color: theme.text }]}>{profile.name}</Text>
             <Text style={[styles.profileSub, { color: theme.textSecondary }]}>

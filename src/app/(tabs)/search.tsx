@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -15,8 +16,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SongListSkeleton } from '@/components/SkeletonLoader';
 import { SongTile } from '@/components/SongTile';
+import { TrackArtwork } from '@/components/TrackArtwork';
 import { BROWSE_GENRES, type BrowseGenre } from '@/data/seedCatalog';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { customApiSourceProvider } from '@/services/sources/customApiSource';
@@ -39,11 +42,21 @@ const SOURCE_FILTERS: { id: MusicSourceId | 'all'; label: string }[] = [
   { id: 'local', label: 'Device' },
 ];
 
+const DISCOVER_TAGS = [
+  { id: 'tag-electronic', tag: '#electronic', query: 'electronic', color: Palette.genrePop },
+  { id: 'tag-ambient', tag: '#ambient', query: 'ambient', color: Palette.genreNews },
+  { id: 'tag-lofi', tag: '#lofi', query: 'lofi', color: Palette.genrePodcasts },
+  { id: 'tag-jazz', tag: '#jazz', query: 'jazz', color: Palette.genreComedy },
+  { id: 'tag-indie', tag: '#indie', query: 'indie', color: Palette.genreIndie },
+];
+
 function GenreCard({
   genre,
+  artworkUrl,
   onPress,
 }: {
   genre: BrowseGenre;
+  artworkUrl?: string;
   onPress: () => void;
 }) {
   return (
@@ -60,7 +73,13 @@ function GenreCard({
       </Text>
 
       <View style={styles.genreTiltedBox}>
-        {genre.artworkAsset ? (
+        {artworkUrl ? (
+          <Image
+            source={{ uri: artworkUrl }}
+            style={styles.genreTiltedImg}
+            contentFit="cover"
+          />
+        ) : genre.artworkAsset ? (
           <Image
             source={genre.artworkAsset}
             style={styles.genreTiltedImg}
@@ -68,7 +87,7 @@ function GenreCard({
           />
         ) : (
           <View style={styles.genreTiltedPlaceholder}>
-            <Text style={styles.genreTiltedText}>Album</Text>
+            <Ionicons name="musical-notes" size={24} color="rgba(255,255,255,0.85)" />
           </View>
         )}
       </View>
@@ -81,7 +100,10 @@ export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const offlineOnly = useSettingsStore((s) => s.settings.offlineOnly);
+  const openProfileDrawer = useSettingsStore((s) => s.openProfileDrawer);
 
+  const discoveryFeed = useLibraryStore((s) => s.discoveryFeed);
+  const tracksById = useLibraryStore((s) => s.tracksById);
   const recentSearches = useLibraryStore((s) => s.recentSearches);
   const addRecentSearch = useLibraryStore((s) => s.addRecentSearch);
   const clearRecentSearches = useLibraryStore((s) => s.clearRecentSearches);
@@ -98,6 +120,11 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Track[]>([]);
   const [sourceErrors, setSourceErrors] = useState<string[]>([]);
+
+  const artworkPool = useMemo(() => {
+    const combined = [...discoveryFeed.allTracks, ...Object.values(tracksById)];
+    return combined.filter((t) => Boolean(t.localArtworkUri || t.artworkUrl));
+  }, [discoveryFeed.allTracks, tracksById]);
 
   useEffect(() => {
     if (!isSearching) return;
@@ -137,9 +164,10 @@ export default function SearchScreen() {
     }
   };
 
-  const handleOpenGenre = (genre: BrowseGenre) => {
+  const handleOpenQuery = (q: string, filter: MusicSourceId | 'all' = 'all') => {
+    setSourceFilter(filter);
     setIsSearching(true);
-    setQuery(genre.query);
+    setQuery(q);
   };
 
   const handleTrackPress = useCallback(
@@ -191,14 +219,13 @@ export default function SearchScreen() {
   if (isSearching) {
     return (
       <View style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top }]}>
-        {/* Active Search Header matching Figma 1:223 */}
         <View style={styles.activeHeader}>
           <View style={[styles.activeInputWrap, { backgroundColor: theme.surfaceElevated }]}>
             <Ionicons name="search" size={16} color={theme.textSecondary} />
             <TextInput
               value={query}
               onChangeText={handleQueryChange}
-              placeholder="Search artists, songs, or sources"
+              placeholder="What do you want to listen to?"
               placeholderTextColor={theme.textSecondary}
               autoFocus
               returnKeyType="search"
@@ -222,7 +249,6 @@ export default function SearchScreen() {
           </Pressable>
         </View>
 
-        {/* Source filter pills */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -353,59 +379,118 @@ export default function SearchScreen() {
     );
   }
 
-  const topGenres = BROWSE_GENRES.filter((g) => g.section === 'top');
-  const podcastGenres = BROWSE_GENRES.filter((g) => g.section === 'podcast');
-  const browseAllGenres = BROWSE_GENRES.filter((g) => g.section === 'all');
+  const topFour = BROWSE_GENRES.slice(0, 4);
+  const restGenres = BROWSE_GENRES.slice(4);
 
   return (
     <ScrollView
       style={[styles.root, { backgroundColor: theme.background }]}
       contentContainerStyle={{
-        paddingTop: insets.top + 14,
+        paddingTop: insets.top + 10,
         paddingBottom: 28,
         paddingHorizontal: Spacing.lg,
       }}
       showsVerticalScrollIndicator={false}
     >
-      {/* Search Browse Header matching Figma 42:1795 */}
+      {/* Header: Profile Avatar + Search + Camera */}
       <View style={styles.browseHeader}>
-        <Text style={[styles.screenTitle, { color: theme.text }]}>Search</Text>
-        <Pressable onPress={() => router.push('/scanner')} hitSlop={10}>
+        <View style={styles.browseTitleGroup}>
+          <ProfileAvatar size={34} onPress={openProfileDrawer} />
+          <Text style={[styles.screenTitle, { color: theme.text }]}>Search</Text>
+        </View>
+        <Pressable
+          onPress={() => router.push('/scanner')}
+          hitSlop={10}
+          accessibilityLabel="Open scanner"
+        >
           <Ionicons name="camera-outline" size={25} color={theme.text} />
         </Pressable>
       </View>
 
-      {/* White Search Bar matching Figma 42:1907 */}
+      {/* White Search Bar */}
       <Pressable
         onPress={() => setIsSearching(true)}
         style={styles.whiteSearchBar}
         accessibilityRole="search"
       >
         <Ionicons name="search" size={20} color="#131313" />
-        <Text style={styles.whiteSearchPlaceholder}>Artists, songs, or podcasts</Text>
+        <Text style={styles.whiteSearchPlaceholder}>What do you want to listen to?</Text>
       </Pressable>
 
-      <Text style={[styles.sectionHeading, { color: theme.text }]}>Your top genres</Text>
-      <View style={styles.gridRow}>
-        {topGenres.map((g) => (
-          <GenreCard key={g.id} genre={g} onPress={() => handleOpenGenre(g)} />
-        ))}
-      </View>
-
-      <Text style={[styles.sectionHeading, { color: theme.text }]}>
-        Popular podcast categories
-      </Text>
-      <View style={styles.gridRow}>
-        {podcastGenres.map((g) => (
-          <GenreCard key={g.id} genre={g} onPress={() => handleOpenGenre(g)} />
-        ))}
-      </View>
-
-      <Text style={[styles.sectionHeading, { color: theme.text }]}>Browse all</Text>
+      {/* Top 2x2 Category Cards */}
       <View style={styles.gridWrap}>
-        {browseAllGenres.map((g) => (
-          <GenreCard key={g.id} genre={g} onPress={() => handleOpenGenre(g)} />
-        ))}
+        {topFour.map((g, idx) => {
+          const sample = artworkPool[idx];
+          return (
+            <GenreCard
+              key={g.id}
+              genre={g}
+              artworkUrl={sample?.localArtworkUri || sample?.artworkUrl}
+              onPress={() => handleOpenQuery(g.query)}
+            />
+          );
+        })}
+      </View>
+
+      {/* Discover Something New - Tall Portrait Cards */}
+      <Text style={[styles.sectionHeading, { color: theme.text, marginTop: Spacing.xl }]}>
+        Discover something new
+      </Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.discoverRow}
+        style={styles.discoverScroll}
+      >
+        {DISCOVER_TAGS.map((item, idx) => {
+          const sample = artworkPool[(idx + 4) % Math.max(1, artworkPool.length)];
+          return (
+            <Pressable
+              key={item.id}
+              onPress={() => handleOpenQuery(item.query)}
+              style={({ pressed }) => [
+                styles.discoverCard,
+                { backgroundColor: item.color },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              {sample && (
+                <TrackArtwork
+                  artworkUrl={sample.artworkUrl}
+                  localArtworkUri={sample.localArtworkUri}
+                  dominantColor={item.color}
+                  size={200}
+                  borderRadius={0}
+                  style={styles.discoverBgImg}
+                />
+              )}
+              <LinearGradient
+                colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.78)']}
+                style={styles.discoverOverlay}
+              >
+                <Text style={styles.discoverTag}>{item.tag}</Text>
+              </LinearGradient>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Browse All Grid */}
+      <Text style={[styles.sectionHeading, { color: theme.text, marginTop: Spacing.lg }]}>
+        Browse all
+      </Text>
+      <View style={styles.gridWrap}>
+        {restGenres.map((g, idx) => {
+          const sample = artworkPool[idx + 2];
+          return (
+            <GenreCard
+              key={g.id}
+              genre={g}
+              artworkUrl={sample?.localArtworkUri || sample?.artworkUrl}
+              onPress={() => handleOpenQuery(g.query)}
+            />
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -419,11 +504,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  browseTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   screenTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 25,
+    fontSize: 24,
   },
   whiteSearchBar: {
     height: 46,
@@ -433,24 +523,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
     gap: 10,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   whiteSearchPlaceholder: {
     fontFamily: FontFamily.medium,
-    fontSize: 15.5,
+    fontSize: 15,
     color: '#131313',
   },
   sectionHeading: {
-    fontFamily: FontFamily.semiBold,
-    fontSize: 16,
+    fontFamily: FontFamily.bold,
+    fontSize: 18,
     marginBottom: Spacing.md,
-    marginTop: Spacing.sm,
-  },
-  gridRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: Spacing.lg,
   },
   gridWrap: {
     flexDirection: 'row',
@@ -460,28 +543,28 @@ const styles = StyleSheet.create({
   },
   genreCard: {
     width: '48%',
-    height: 106,
-    borderRadius: Radii.sm,
+    height: 92,
+    borderRadius: Radii.md,
     padding: Spacing.md,
     overflow: 'hidden',
     position: 'relative',
   },
   genreTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 16,
+    fontSize: 15.5,
     color: Palette.white,
-    maxWidth: '72%',
+    maxWidth: '68%',
   },
   genreTiltedBox: {
     position: 'absolute',
-    right: -14,
+    right: -12,
     bottom: -6,
-    width: 67,
-    height: 67,
-    transform: [{ rotate: '20deg' }],
-    borderRadius: 4,
+    width: 64,
+    height: 64,
+    transform: [{ rotate: '22deg' }],
+    borderRadius: 6,
     overflow: 'hidden',
-    backgroundColor: Palette.surfaceCard,
+    backgroundColor: 'rgba(0,0,0,0.22)',
   },
   genreTiltedImg: {
     width: '100%',
@@ -491,11 +574,33 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Palette.surfaceCard,
   },
-  genreTiltedText: {
+  discoverScroll: {
+    marginHorizontal: -Spacing.lg,
+  },
+  discoverRow: {
+    paddingHorizontal: Spacing.lg,
+    gap: 12,
+  },
+  discoverCard: {
+    width: 128,
+    height: 200,
+    borderRadius: Radii.lg,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  discoverBgImg: {
+    width: '100%',
+    height: '100%',
+  },
+  discoverOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'flex-end',
+    padding: Spacing.md,
+  },
+  discoverTag: {
     fontFamily: FontFamily.bold,
-    fontSize: 11,
+    fontSize: 13.5,
     color: Palette.white,
   },
   activeHeader: {

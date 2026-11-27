@@ -14,11 +14,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DockedMiniPlayerFooter } from '@/components/DockedMiniPlayerFooter';
+import { pickProfileAvatarUri, ProfileAvatar } from '@/components/ProfileAvatar';
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { FigmaAssets } from '@/constants/figmaAssets';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { useAppTheme, useSettingsStore } from '@/store/useSettingsStore';
+import { hexWithAlpha } from '@/utils/format';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -27,9 +28,19 @@ export default function ProfileScreen() {
   const profile = useSettingsStore((s) => s.profile);
   const updateProfile = useSettingsStore((s) => s.updateProfile);
   const playlists = useLibraryStore((s) => s.playlists);
+  const likedTrackIds = useLibraryStore((s) => s.likedTrackIds);
+  const recentlyPlayedIds = useLibraryStore((s) => s.recentlyPlayedIds);
+  const tracksById = useLibraryStore((s) => s.tracksById);
 
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(profile.name);
+
+  const handlePickPhoto = async () => {
+    const uri = await pickProfileAvatarUri();
+    if (uri) {
+      await updateProfile({ avatarUri: uri });
+    }
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -38,44 +49,56 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <LinearGradient
-          colors={['#3A3A3A', theme.background]}
+          colors={[theme.surfaceElevated, theme.background]}
           style={[styles.hero, { paddingTop: insets.top + 8 }]}
         >
           <View style={styles.topRow}>
-            <Pressable onPress={() => router.back()} hitSlop={10}>
-              <Ionicons name="chevron-back" size={24} color={Palette.white} />
+            <Pressable onPress={() => router.back()} hitSlop={10} accessibilityLabel="Go back">
+              <Ionicons name="chevron-back" size={24} color={theme.text} />
             </Pressable>
-            <Pressable onPress={() => router.push('/settings')} hitSlop={10}>
-              <Ionicons name="settings-outline" size={22} color={Palette.white} />
+            <Pressable onPress={() => router.push('/settings')} hitSlop={10} accessibilityLabel="Open settings">
+              <Ionicons name="settings-outline" size={22} color={theme.text} />
             </Pressable>
           </View>
 
           <View style={styles.centerBlock}>
-            <TrackArtwork artworkAsset={FigmaAssets.editors1} size={122} circular />
-            <Text style={styles.userName}>{profile.name}</Text>
-            <Pressable
-              onPress={() => {
-                setDraftName(profile.name);
-                setEditing(true);
-              }}
-              style={styles.editPill}
-            >
-              <Text style={styles.editPillText}>Edit Profile</Text>
-            </Pressable>
+            <ProfileAvatar
+              size={116}
+              onPress={handlePickPhoto}
+              accessibilityLabel="Change profile photo"
+            />
+            <Text style={[styles.userName, { color: theme.text }]}>{profile.name}</Text>
+            <View style={styles.actionPills}>
+              <Pressable
+                onPress={() => {
+                  setDraftName(profile.name);
+                  setEditing(true);
+                }}
+                style={[styles.editPill, { borderColor: hexWithAlpha(theme.text, 0.35) }]}
+              >
+                <Text style={[styles.editPillText, { color: theme.text }]}>Edit Profile</Text>
+              </Pressable>
+              <Pressable
+                onPress={handlePickPhoto}
+                style={[styles.editPill, { borderColor: hexWithAlpha(theme.text, 0.35) }]}
+              >
+                <Text style={[styles.editPillText, { color: theme.text }]}>Change Photo</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.statsRow}>
             <View style={styles.statCol}>
-              <Text style={styles.statValue}>{playlists.length}</Text>
-              <Text style={styles.statLabel}>PLAYLISTS</Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>{playlists.length}</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>PLAYLISTS</Text>
             </View>
             <View style={styles.statCol}>
-              <Text style={styles.statValue}>{profile.followersCount}</Text>
-              <Text style={styles.statLabel}>FOLLOWERS</Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>{likedTrackIds.length}</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>LIKED SONGS</Text>
             </View>
             <View style={styles.statCol}>
-              <Text style={styles.statValue}>{profile.followingCount}</Text>
-              <Text style={styles.statLabel}>FOLLOWING</Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>{recentlyPlayedIds.length}</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>RECENTLY PLAYED</Text>
             </View>
           </View>
         </LinearGradient>
@@ -86,22 +109,29 @@ export default function ProfileScreen() {
             No custom playlists yet. Create one in Your Library!
           </Text>
         ) : (
-          playlists.slice(0, 5).map((pl) => (
-            <Pressable
-              key={pl.id}
-              onPress={() => router.push(`/playlist/${encodeURIComponent(pl.id)}`)}
-              style={styles.plRow}
-            >
-              <TrackArtwork artworkUrl={pl.artworkUrl} size={50} borderRadius={2} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.plTitle, { color: theme.text }]}>{pl.name}</Text>
-                <Text style={[styles.plSub, { color: theme.textSecondary }]}>
-                  {pl.trackIds.length} songs
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-            </Pressable>
-          ))
+          playlists.slice(0, 5).map((pl) => {
+            const firstTrack = pl.trackIds[0] ? tracksById[pl.trackIds[0]] : undefined;
+            return (
+              <Pressable
+                key={pl.id}
+                onPress={() => router.push(`/playlist/${encodeURIComponent(pl.id)}`)}
+                style={styles.plRow}
+              >
+                <TrackArtwork
+                  artworkUrl={pl.artworkUrl ?? firstTrack?.artworkUrl}
+                  size={50}
+                  borderRadius={6}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.plTitle, { color: theme.text }]}>{pl.name}</Text>
+                  <Text style={[styles.plSub, { color: theme.textSecondary }]}>
+                    {pl.trackIds.length} songs
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+              </Pressable>
+            );
+          })
         )}
 
         <Pressable
@@ -126,6 +156,20 @@ export default function ProfileScreen() {
               placeholderTextColor={theme.textMuted}
               style={[styles.modalInput, { color: theme.text, backgroundColor: theme.surfaceInput }]}
             />
+            {Boolean(profile.avatarUri) && (
+              <Pressable
+                onPress={async () => {
+                  await updateProfile({ avatarUri: undefined });
+                  setEditing(false);
+                }}
+                style={styles.removePhotoRow}
+              >
+                <Ionicons name="trash-outline" size={16} color={theme.textSecondary} />
+                <Text style={[styles.removePhotoText, { color: theme.textSecondary }]}>
+                  Remove profile photo
+                </Text>
+              </Pressable>
+            )}
             <View style={styles.modalBtns}>
               <Pressable onPress={() => setEditing(false)}>
                 <Text style={[styles.modalCancel, { color: theme.textSecondary }]}>Cancel</Text>
@@ -167,21 +211,23 @@ const styles = StyleSheet.create({
   userName: {
     fontFamily: FontFamily.bold,
     fontSize: 22,
-    color: Palette.white,
+    marginTop: Spacing.md,
+  },
+  actionPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     marginTop: Spacing.md,
   },
   editPill: {
-    marginTop: Spacing.md,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 7,
     borderRadius: Radii.pill,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.45)',
   },
   editPillText: {
     fontFamily: FontFamily.bold,
     fontSize: 13,
-    color: Palette.white,
   },
   statsRow: {
     flexDirection: 'row',
@@ -195,12 +241,10 @@ const styles = StyleSheet.create({
   statValue: {
     fontFamily: FontFamily.bold,
     fontSize: 15,
-    color: Palette.white,
   },
   statLabel: {
     fontFamily: FontFamily.medium,
     fontSize: 11,
-    color: Palette.mutedText,
     letterSpacing: 0.6,
   },
   sectionTitle: {
@@ -269,6 +313,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 18,
     marginTop: Spacing.lg,
+  },
+  removePhotoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: Spacing.md,
+    paddingVertical: 4,
+  },
+  removePhotoText: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13.5,
   },
   modalCancel: {
     fontFamily: FontFamily.semiBold,

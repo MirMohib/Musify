@@ -14,10 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BottomSheetModal } from '@/components/BottomSheetModal';
 import { PlaylistFormModal } from '@/components/PlaylistModal';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SongTile } from '@/components/SongTile';
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { FigmaAssets } from '@/constants/figmaAssets';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
@@ -25,7 +26,7 @@ import { usePlayerStore } from '@/store/usePlayerStore';
 import { useAppTheme, useSettingsStore } from '@/store/useSettingsStore';
 import type { Playlist } from '@/types/music';
 
-type FilterChip = 'all' | 'playlists' | 'artists' | 'albums' | 'device';
+type FilterChip = 'all' | 'playlists' | 'artists' | 'albums' | 'device' | 'downloads';
 
 export default function LibraryScreen() {
   const { filter } = useLocalSearchParams<{ filter?: string }>();
@@ -33,6 +34,7 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const profile = useSettingsStore((s) => s.profile);
+  const openProfileDrawer = useSettingsStore((s) => s.openProfileDrawer);
 
   const tracksById = useLibraryStore((s) => s.tracksById);
   const playlists = useLibraryStore((s) => s.playlists);
@@ -47,7 +49,11 @@ export default function LibraryScreen() {
   const playTrack = usePlayerStore((s) => s.playTrack);
 
   const activeFilter: FilterChip =
-    filter === 'device' || filter === 'playlists' || filter === 'artists' || filter === 'albums'
+    filter === 'device' ||
+    filter === 'playlists' ||
+    filter === 'artists' ||
+    filter === 'albums' ||
+    filter === 'downloads'
       ? filter
       : 'all';
 
@@ -56,8 +62,10 @@ export default function LibraryScreen() {
   };
 
   const [sortMode, setSortMode] = useState<'recent' | 'alpha'>('recent');
+  const [gridView, setGridView] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [filterText, setFilterText] = useState('');
+  const [showCreateSheet, setShowCreateSheet] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const allTracks = useMemo(() => Object.values(tracksById), [tracksById]);
@@ -72,10 +80,18 @@ export default function LibraryScreen() {
     return sortMode === 'alpha' ? [...list].sort((a, b) => a.title.localeCompare(b.title)) : list;
   }, [allTracks, filterText, sortMode]);
 
-  const completedDownloadsCount = useMemo(
-    () => Object.values(downloads).filter((d) => d.status === 'completed').length,
-    [downloads]
-  );
+  const downloadedTracks = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    const list = Object.values(downloads)
+      .filter((d) => d.status === 'completed')
+      .map((d) => tracksById[d.trackId])
+      .filter(
+        (t): t is NonNullable<typeof t> =>
+          Boolean(t) &&
+          (!q || t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q))
+      );
+    return sortMode === 'alpha' ? [...list].sort((a, b) => a.title.localeCompare(b.title)) : list;
+  }, [downloads, tracksById, filterText, sortMode]);
 
   const filteredPlaylists = useMemo(() => {
     const q = filterText.trim().toLowerCase();
@@ -86,7 +102,6 @@ export default function LibraryScreen() {
     return list;
   }, [playlists, filterText, sortMode]);
 
-  // Real artists derived from your library, liked, local, and cached tracks
   const libraryArtists = useMemo(() => {
     const map = new Map<string, { id: string; name: string; artworkUrl?: string; count: number }>();
     const q = filterText.trim().toLowerCase();
@@ -97,12 +112,14 @@ export default function LibraryScreen() {
       const prev = map.get(key);
       if (prev) {
         prev.count += 1;
-        if (!prev.artworkUrl && t.artworkUrl) prev.artworkUrl = t.artworkUrl;
+        if (!prev.artworkUrl && (t.localArtworkUri || t.artworkUrl)) {
+          prev.artworkUrl = t.localArtworkUri || t.artworkUrl;
+        }
       } else {
         map.set(key, {
           id: t.artistId || t.artist,
           name: t.artist,
-          artworkUrl: t.artworkUrl,
+          artworkUrl: t.localArtworkUri || t.artworkUrl,
           count: 1,
         });
       }
@@ -111,7 +128,6 @@ export default function LibraryScreen() {
     return sortMode === 'alpha' ? list.sort((a, b) => a.name.localeCompare(b.name)) : list;
   }, [allTracks, filterText, sortMode]);
 
-  // Real albums derived from your library & device tracks
   const libraryAlbums = useMemo(() => {
     const map = new Map<
       string,
@@ -130,7 +146,7 @@ export default function LibraryScreen() {
           id: key,
           title: t.album,
           artist: t.artist,
-          artworkUrl: t.artworkUrl,
+          artworkUrl: t.localArtworkUri || t.artworkUrl,
           count: 1,
         });
       }
@@ -140,6 +156,7 @@ export default function LibraryScreen() {
   }, [allTracks, filterText, sortMode]);
 
   const handleImportFiles = async () => {
+    setShowCreateSheet(false);
     const res = await importLocalMusic();
     if (!res.canceled && res.imported.length > 0) {
       Alert.alert('Imported Audio', `Added ${res.imported.length} track(s) to Device Music.`);
@@ -147,6 +164,7 @@ export default function LibraryScreen() {
   };
 
   const handleRescanDevice = async () => {
+    setShowCreateSheet(false);
     const res = await rescanDeviceMusic(true);
     if (res.message) {
       Alert.alert('Device Scan', res.message);
@@ -155,8 +173,32 @@ export default function LibraryScreen() {
     }
   };
 
-  const renderPlaylistRow = (pl: Playlist) => {
+  const renderPlaylistItem = (pl: Playlist) => {
     const firstTrack = pl.trackIds[0] ? tracksById[pl.trackIds[0]] : undefined;
+    if (gridView) {
+      return (
+        <Pressable
+          key={pl.id}
+          onPress={() => router.push(`/playlist/${encodeURIComponent(pl.id)}`)}
+          style={styles.gridItem}
+        >
+          <TrackArtwork
+            artworkUrl={pl.artworkUrl ?? firstTrack?.artworkUrl}
+            localArtworkUri={firstTrack?.localArtworkUri}
+            dominantColor={firstTrack?.dominantColor}
+            size={106}
+            borderRadius={4}
+          />
+          <Text style={[styles.gridTitle, { color: theme.text }]} numberOfLines={1}>
+            {pl.name}
+          </Text>
+          <Text style={[styles.gridSub, { color: theme.textSecondary }]} numberOfLines={1}>
+            Playlist · {pl.trackIds.length}
+          </Text>
+        </Pressable>
+      );
+    }
+
     return (
       <Pressable
         key={pl.id}
@@ -167,7 +209,7 @@ export default function LibraryScreen() {
           artworkUrl={pl.artworkUrl ?? firstTrack?.artworkUrl}
           localArtworkUri={firstTrack?.localArtworkUri}
           dominantColor={firstTrack?.dominantColor}
-          size={64}
+          size={62}
           borderRadius={4}
         />
         <View style={styles.rowMeta}>
@@ -175,7 +217,7 @@ export default function LibraryScreen() {
             {pl.name}
           </Text>
           <Text style={[styles.rowSub, { color: theme.textSecondary }]} numberOfLines={1}>
-            Playlist · {pl.owner} · {pl.trackIds.length} songs
+            Playlist · {pl.owner} · {pl.trackIds.length} {pl.trackIds.length === 1 ? 'song' : 'songs'}
           </Text>
         </View>
       </Pressable>
@@ -184,18 +226,26 @@ export default function LibraryScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 8 }]}>
-      {/* Header */}
+      {/* Header matching Spotify Your Library */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.push('/profile')} style={styles.headerLeft}>
-          <TrackArtwork artworkAsset={FigmaAssets.editors1} size={34} circular />
+        <View style={styles.headerLeft}>
+          <ProfileAvatar size={34} onPress={openProfileDrawer} />
           <Text style={[styles.headerTitle, { color: theme.text }]}>Your Library</Text>
-        </Pressable>
+        </View>
 
         <View style={styles.headerRight}>
-          <Pressable onPress={() => setShowSearch((v) => !v)} hitSlop={10}>
+          <Pressable
+            onPress={() => setShowSearch((v) => !v)}
+            hitSlop={10}
+            accessibilityLabel="Filter library"
+          >
             <Ionicons name="search" size={23} color={theme.text} />
           </Pressable>
-          <Pressable onPress={() => setShowCreateModal(true)} hitSlop={10}>
+          <Pressable
+            onPress={() => setShowCreateSheet(true)}
+            hitSlop={10}
+            accessibilityLabel="Create playlist or import local music"
+          >
             <Ionicons name="add" size={28} color={theme.text} />
           </Pressable>
         </View>
@@ -207,14 +257,19 @@ export default function LibraryScreen() {
           <TextInput
             value={filterText}
             onChangeText={setFilterText}
-            placeholder="Filter playlists, artists, albums, or device music"
+            placeholder="Filter playlists, artists, albums, or downloads"
             placeholderTextColor={theme.textSecondary}
             style={[styles.inlineInput, { color: theme.text }]}
           />
+          {filterText.length > 0 && (
+            <Pressable onPress={() => setFilterText('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={theme.textSecondary} />
+            </Pressable>
+          )}
         </View>
       )}
 
-      {/* Filter pills */}
+      {/* Filter Pills */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -224,7 +279,8 @@ export default function LibraryScreen() {
         {activeFilter !== 'all' && (
           <Pressable
             onPress={() => setActiveFilter('all')}
-            style={[styles.clearChip, { borderColor: theme.border }]}
+            style={[styles.clearChip, { borderColor: theme.border, backgroundColor: theme.surfaceElevated }]}
+            accessibilityLabel="Clear filter"
           >
             <Ionicons name="close" size={16} color={theme.text} />
           </Pressable>
@@ -232,9 +288,10 @@ export default function LibraryScreen() {
         {(
           [
             { id: 'playlists', label: 'Playlists' },
-            { id: 'device', label: `Device Music (${localTracks.length})` },
-            { id: 'artists', label: 'Artists' },
             { id: 'albums', label: 'Albums' },
+            { id: 'artists', label: 'Artists' },
+            { id: 'device', label: 'Device' },
+            { id: 'downloads', label: 'Downloads' },
           ] as const
         ).map((chip) => {
           const active = activeFilter === chip.id;
@@ -245,8 +302,7 @@ export default function LibraryScreen() {
               style={[
                 styles.chip,
                 {
-                  backgroundColor: active ? Palette.brandGreen : 'transparent',
-                  borderColor: active ? Palette.brandGreen : theme.border,
+                  backgroundColor: active ? Palette.brandGreen : theme.surfaceElevated,
                 },
               ]}
             >
@@ -256,109 +312,157 @@ export default function LibraryScreen() {
             </Pressable>
           );
         })}
-
-        <Pressable
-          onPress={() => router.push('/downloads')}
-          style={[styles.chip, { borderColor: theme.border }]}
-        >
-          <Text style={[styles.chipText, { color: theme.text }]}>
-            Downloads ({completedDownloadsCount})
-          </Text>
-        </Pressable>
       </ScrollView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
+        {/* Sort & View Toggle Row */}
         <View style={styles.sortRow}>
           <Pressable
             onPress={() => setSortMode((m) => (m === 'recent' ? 'alpha' : 'recent'))}
             style={styles.sortBtn}
           >
-            <Ionicons name="swap-vertical" size={14} color={theme.text} />
+            <Ionicons name="swap-vertical" size={15} color={theme.text} />
             <Text style={[styles.sortText, { color: theme.text }]}>
-              {sortMode === 'recent' ? 'Recently added' : 'Alphabetical'}
+              {sortMode === 'recent' ? 'Recents' : 'Alphabetical'}
             </Text>
           </Pressable>
-          <Text style={[styles.profileTag, { color: theme.textSecondary }]}>{profile.name}</Text>
+
+          <Pressable
+            onPress={() => setGridView((v) => !v)}
+            hitSlop={10}
+            accessibilityLabel={gridView ? 'Switch to list view' : 'Switch to grid view'}
+          >
+            <Ionicons
+              name={gridView ? 'list-outline' : 'grid-outline'}
+              size={19}
+              color={theme.text}
+            />
+          </Pressable>
         </View>
 
-        {/* Liked Songs */}
+        {/* All / Playlists View */}
         {(activeFilter === 'all' || activeFilter === 'playlists') && (
-          <Pressable
-            onPress={() => router.push('/playlist/liked')}
-            style={styles.libraryRow}
-          >
-            <LinearGradient
-              colors={[Palette.likedGradientStart, Palette.likedGradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.specialSquare}
-            >
-              <Ionicons name="heart" size={26} color={Palette.white} />
-            </LinearGradient>
-            <View style={styles.rowMeta}>
-              <Text style={[styles.rowTitle, { color: theme.text }]}>Liked Songs</Text>
-              <View style={styles.subWithPin}>
-                <Ionicons name="pin" size={12} color={Palette.brandGreen} />
-                <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
-                  Playlist · {likedTrackIds.length} songs
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        )}
-
-        {/* Downloads Shortcut */}
-        {activeFilter === 'all' && (
-          <Pressable onPress={() => router.push('/downloads')} style={styles.libraryRow}>
-            <View style={[styles.specialSquare, { backgroundColor: Palette.episodesBg }]}>
-              <Ionicons name="arrow-down-circle" size={28} color={Palette.brandGreen} />
-            </View>
-            <View style={styles.rowMeta}>
-              <Text style={[styles.rowTitle, { color: theme.text }]}>Downloads &amp; Offline</Text>
-              <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
-                Offline ready · {completedDownloadsCount} tracks
-              </Text>
-            </View>
-          </Pressable>
-        )}
-
-        {/* Device Music Section (Automatic Scan + Rescan + Manual Import fallback) */}
-        {(activeFilter === 'all' || activeFilter === 'device') && (
-          <View style={[styles.deviceCard, { backgroundColor: theme.surfaceElevated }]}>
-            <View style={styles.deviceHeader}>
-              <View style={styles.deviceTitleRow}>
-                <Ionicons name="phone-portrait-outline" size={20} color={Palette.brandGreen} />
-                <Text style={[styles.deviceTitle, { color: theme.text }]}>
-                  Device Music ({localTracks.length})
-                </Text>
-              </View>
-              <View style={styles.deviceBtns}>
-                <Pressable
-                  onPress={handleRescanDevice}
-                  disabled={isScanningDevice}
-                  style={[styles.deviceActionPill, { backgroundColor: '#3A3A3C' }]}
+          <View style={gridView ? styles.gridWrap : undefined}>
+            {/* Liked Songs */}
+            {gridView ? (
+              <Pressable
+                onPress={() => router.push('/playlist/liked')}
+                style={styles.gridItem}
+              >
+                <LinearGradient
+                  colors={[Palette.likedGradientStart, Palette.likedGradientEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.specialSquare, { width: 106, height: 106 }]}
                 >
-                  {isScanningDevice ? (
-                    <ActivityIndicator size="small" color={Palette.white} />
-                  ) : (
-                    <Text style={[styles.deviceActionText, { color: Palette.white }]}>
-                      Rescan Device
+                  <Ionicons name="heart" size={38} color={Palette.white} />
+                </LinearGradient>
+                <Text style={[styles.gridTitle, { color: theme.text }]} numberOfLines={1}>
+                  Liked Songs
+                </Text>
+                <Text style={[styles.gridSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {likedTrackIds.length} songs
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => router.push('/playlist/liked')}
+                style={styles.libraryRow}
+              >
+                <LinearGradient
+                  colors={[Palette.likedGradientStart, Palette.likedGradientEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.specialSquare}
+                >
+                  <Ionicons name="heart" size={24} color={Palette.white} />
+                </LinearGradient>
+                <View style={styles.rowMeta}>
+                  <Text style={[styles.rowTitle, { color: theme.text }]}>Liked Songs</Text>
+                  <View style={styles.subWithPin}>
+                    <Ionicons name="pin" size={12} color={Palette.brandGreen} />
+                    <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
+                      Playlist · {profile.name} · {likedTrackIds.length} {likedTrackIds.length === 1 ? 'song' : 'songs'}
                     </Text>
-                  )}
+                  </View>
+                </View>
+              </Pressable>
+            )}
+
+            {/* User Playlists */}
+            {filteredPlaylists.map(renderPlaylistItem)}
+
+            {/* Compact Downloads & Device rows on All view */}
+            {activeFilter === 'all' && !gridView && (
+              <>
+                <Pressable onPress={() => router.push('/downloads')} style={styles.libraryRow}>
+                  <View style={[styles.specialSquare, { backgroundColor: Palette.episodesBg }]}>
+                    <Ionicons name="arrow-down-circle" size={26} color={Palette.white} />
+                  </View>
+                  <View style={styles.rowMeta}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]}>Downloads</Text>
+                    <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
+                      Offline · {downloadedTracks.length} {downloadedTracks.length === 1 ? 'track' : 'tracks'}
+                    </Text>
+                  </View>
                 </Pressable>
-                <Pressable onPress={handleImportFiles} style={styles.deviceActionPill}>
-                  <Text style={styles.deviceActionText}>Import Local Music</Text>
+
+                <Pressable
+                  onPress={() => setActiveFilter('device')}
+                  style={styles.libraryRow}
+                >
+                  <View style={[styles.specialSquare, { backgroundColor: theme.surfaceElevated }]}>
+                    <Ionicons name="phone-portrait-outline" size={26} color={Palette.brandGreen} />
+                  </View>
+                  <View style={styles.rowMeta}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]}>Device Music</Text>
+                    <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
+                      Local · {localTracks.length} {localTracks.length === 1 ? 'file' : 'files'}
+                    </Text>
+                  </View>
                 </Pressable>
-              </View>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* Device Filter View */}
+        {activeFilter === 'device' && (
+          <View>
+            <View style={styles.deviceActionRow}>
+              <Pressable
+                onPress={handleRescanDevice}
+                disabled={isScanningDevice}
+                style={[styles.deviceActionBtn, { backgroundColor: theme.surfaceElevated }]}
+              >
+                {isScanningDevice ? (
+                  <ActivityIndicator size="small" color={Palette.brandGreen} />
+                ) : (
+                  <Ionicons name="refresh" size={16} color={theme.text} />
+                )}
+                <Text style={[styles.deviceActionLabel, { color: theme.text }]}>
+                  Rescan Device
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleImportFiles}
+                style={[styles.deviceActionBtn, { backgroundColor: Palette.brandGreen }]}
+              >
+                <Ionicons name="folder-open-outline" size={16} color="#121212" />
+                <Text style={[styles.deviceActionLabel, { color: '#121212' }]}>
+                  Import Audio
+                </Text>
+              </Pressable>
             </View>
 
             {localTracks.length === 0 ? (
-              <Text style={[styles.deviceEmpty, { color: theme.textSecondary }]}>
+              <Text style={[styles.emptySection, { color: theme.textSecondary }]}>
                 {deviceScanMessage ||
-                  'No local audio files indexed yet. Tap "Rescan Device" or "Import Local Music" to pick .mp3, .m4a, .wav, or .flac files.'}
+                  'No local audio files indexed yet. Tap "Rescan Device" or "Import Audio".'}
               </Text>
             ) : (
-              (activeFilter === 'device' ? localTracks : localTracks.slice(0, 5)).map((t) => (
+              localTracks.map((t) => (
                 <SongTile
                   key={t.id}
                   track={t}
@@ -371,82 +475,211 @@ export default function LibraryScreen() {
                 />
               ))
             )}
+          </View>
+        )}
 
-            {activeFilter === 'all' && localTracks.length > 5 && (
-              <Pressable
-                onPress={() => setActiveFilter('device')}
-                style={styles.showMoreDevice}
-              >
-                <Text style={styles.showMoreText}>
-                  Show all {localTracks.length} device tracks
-                </Text>
-              </Pressable>
+        {/* Downloads Filter View */}
+        {activeFilter === 'downloads' && (
+          <View>
+            <Pressable
+              onPress={() => router.push('/downloads')}
+              style={[styles.manageStorageBanner, { backgroundColor: theme.surfaceElevated }]}
+            >
+              <Ionicons name="cloud-done-outline" size={18} color={Palette.brandGreen} />
+              <Text style={[styles.manageStorageText, { color: theme.text }]}>
+                Open Download Manager &amp; Storage Settings
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </Pressable>
+
+            {downloadedTracks.length === 0 ? (
+              <Text style={[styles.emptySection, { color: theme.textSecondary }]}>
+                No downloaded tracks yet. Open any track&apos;s options (···) to save offline.
+              </Text>
+            ) : (
+              downloadedTracks.map((t) => (
+                <SongTile
+                  key={t.id}
+                  track={t}
+                  isActive={currentTrack?.id === t.id}
+                  showSourceBadge
+                  onPress={() => playTrack(t, downloadedTracks, 'Downloads')}
+                  onMorePress={() =>
+                    router.push({ pathname: '/track-options', params: { trackId: t.id } })
+                  }
+                />
+              ))
             )}
           </View>
         )}
 
-        {/* User Playlists */}
-        {(activeFilter === 'all' || activeFilter === 'playlists') &&
-          filteredPlaylists.map(renderPlaylistRow)}
-
-        {/* Dynamic Artists */}
+        {/* Dynamic Artists (All view stays crisp; Artists filter shows full list/grid) */}
         {activeFilter === 'artists' &&
           (libraryArtists.length === 0 ? (
             <Text style={[styles.emptySection, { color: theme.textSecondary }]}>
               Artists from your played, downloaded, and device tracks will appear here.
             </Text>
           ) : (
-            libraryArtists.map((artist) => (
-              <Pressable
-                key={artist.id}
-                onPress={() =>
-                  router.push({
-                    pathname: '/artist/[id]',
-                    params: { id: artist.id, name: artist.name },
-                  })
-                }
-                style={styles.libraryRow}
-              >
-                <TrackArtwork artworkUrl={artist.artworkUrl} size={64} circular />
-                <View style={styles.rowMeta}>
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>{artist.name}</Text>
-                  <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
-                    Artist · {artist.count} track{artist.count === 1 ? '' : 's'}
-                  </Text>
-                </View>
-              </Pressable>
-            ))
+            <View style={gridView ? styles.gridWrap : undefined}>
+              {libraryArtists.map((artist) =>
+                gridView ? (
+                  <Pressable
+                    key={artist.id}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/artist/[id]',
+                        params: { id: artist.id, name: artist.name },
+                      })
+                    }
+                    style={styles.gridItem}
+                  >
+                    <TrackArtwork artworkUrl={artist.artworkUrl} size={106} circular />
+                    <Text
+                      style={[styles.gridTitle, { color: theme.text, textAlign: 'center' }]}
+                      numberOfLines={1}
+                    >
+                      {artist.name}
+                    </Text>
+                    <Text
+                      style={[styles.gridSub, { color: theme.textSecondary, textAlign: 'center' }]}
+                      numberOfLines={1}
+                    >
+                      Artist
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    key={artist.id}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/artist/[id]',
+                        params: { id: artist.id, name: artist.name },
+                      })
+                    }
+                    style={styles.libraryRow}
+                  >
+                    <TrackArtwork artworkUrl={artist.artworkUrl} size={62} circular />
+                    <View style={styles.rowMeta}>
+                      <Text style={[styles.rowTitle, { color: theme.text }]}>{artist.name}</Text>
+                      <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
+                        Artist · {artist.count} {artist.count === 1 ? 'track' : 'tracks'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                )
+              )}
+            </View>
           ))}
 
         {/* Dynamic Albums */}
-        {activeFilter === 'albums' &&
-          (libraryAlbums.length === 0 ? (
+        {(activeFilter === 'albums' || (activeFilter === 'all' && libraryAlbums.length > 0 && !gridView)) &&
+          (activeFilter === 'albums' && libraryAlbums.length === 0 ? (
             <Text style={[styles.emptySection, { color: theme.textSecondary }]}>
               Albums from your library and device music will appear here.
             </Text>
           ) : (
-            libraryAlbums.map((album) => (
-              <Pressable
-                key={album.id}
-                onPress={() =>
-                  router.push({
-                    pathname: '/album/[id]',
-                    params: { id: album.id, title: album.title, artist: album.artist },
-                  })
-                }
-                style={styles.libraryRow}
-              >
-                <TrackArtwork artworkUrl={album.artworkUrl} size={64} borderRadius={4} />
-                <View style={styles.rowMeta}>
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>{album.title}</Text>
-                  <Text style={[styles.rowSub, { color: theme.textSecondary }]}>
-                    Album · {album.artist} · {album.count} track{album.count === 1 ? '' : 's'}
-                  </Text>
-                </View>
-              </Pressable>
-            ))
+            <View style={gridView ? styles.gridWrap : undefined}>
+              {(activeFilter === 'all' ? libraryAlbums.slice(0, 6) : libraryAlbums).map((album) =>
+                gridView ? (
+                  <Pressable
+                    key={album.id}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/album/[id]',
+                        params: { id: album.id, title: album.title, artist: album.artist },
+                      })
+                    }
+                    style={styles.gridItem}
+                  >
+                    <TrackArtwork artworkUrl={album.artworkUrl} size={106} borderRadius={4} />
+                    <Text style={[styles.gridTitle, { color: theme.text }]} numberOfLines={1}>
+                      {album.title}
+                    </Text>
+                    <Text style={[styles.gridSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                      Album · {album.artist}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    key={album.id}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/album/[id]',
+                        params: { id: album.id, title: album.title, artist: album.artist },
+                      })
+                    }
+                    style={styles.libraryRow}
+                  >
+                    <TrackArtwork artworkUrl={album.artworkUrl} size={62} borderRadius={4} />
+                    <View style={styles.rowMeta}>
+                      <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
+                        {album.title}
+                      </Text>
+                      <Text style={[styles.rowSub, { color: theme.textSecondary }]} numberOfLines={1}>
+                        Album · {album.artist}
+                      </Text>
+                    </View>
+                  </Pressable>
+                )
+              )}
+            </View>
           ))}
       </ScrollView>
+
+      {/* + Create Bottom Sheet */}
+      <BottomSheetModal
+        visible={showCreateSheet}
+        onClose={() => setShowCreateSheet(false)}
+        maxHeight="50%"
+      >
+        <View style={styles.createSheetContent}>
+          <Pressable
+            onPress={() => {
+              setShowCreateSheet(false);
+              setShowCreateModal(true);
+            }}
+            style={styles.createOptionRow}
+          >
+            <View style={[styles.createIconCircle, { backgroundColor: theme.surfaceElevated }]}>
+              <Ionicons name="musical-notes-outline" size={22} color={theme.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.createOptionTitle, { color: theme.text }]}>Playlist</Text>
+              <Text style={[styles.createOptionSub, { color: theme.textSecondary }]}>
+                Build a playlist with songs from any source
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable onPress={handleImportFiles} style={styles.createOptionRow}>
+            <View style={[styles.createIconCircle, { backgroundColor: theme.surfaceElevated }]}>
+              <Ionicons name="folder-open-outline" size={22} color={theme.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.createOptionTitle, { color: theme.text }]}>
+                Import Local Music
+              </Text>
+              <Text style={[styles.createOptionSub, { color: theme.textSecondary }]}>
+                Add MP3, M4A, WAV, or FLAC files from Files app
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable onPress={handleRescanDevice} style={styles.createOptionRow}>
+            <View style={[styles.createIconCircle, { backgroundColor: theme.surfaceElevated }]}>
+              <Ionicons name="phone-portrait-outline" size={22} color={theme.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.createOptionTitle, { color: theme.text }]}>
+                Scan Device Audio
+              </Text>
+              <Text style={[styles.createOptionSub, { color: theme.textSecondary }]}>
+                Refresh local music indexed on this device
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      </BottomSheetModal>
 
       <PlaylistFormModal
         visible={showCreateModal}
@@ -480,7 +713,7 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 18,
   },
   inlineSearch: {
     flexDirection: 'row',
@@ -498,7 +731,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   chipsScroll: {
-    maxHeight: 44,
+    maxHeight: 42,
     marginBottom: Spacing.sm,
   },
   chipsRow: {
@@ -518,7 +751,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: Radii.pill,
-    borderWidth: 1,
   },
   chipText: {
     fontFamily: FontFamily.medium,
@@ -543,20 +775,16 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semiBold,
     fontSize: 13,
   },
-  profileTag: {
-    fontFamily: FontFamily.medium,
-    fontSize: 12,
-  },
   libraryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: 9,
+    paddingVertical: 8,
     gap: 14,
   },
   specialSquare: {
-    width: 64,
-    height: 64,
+    width: 62,
+    height: 62,
     borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
@@ -576,62 +804,60 @@ const styles = StyleSheet.create({
   },
   rowSub: {
     fontFamily: FontFamily.medium,
+    fontSize: 12.5,
+  },
+  gridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: Spacing.lg,
+    gap: 14,
+    paddingTop: Spacing.xs,
+  },
+  gridItem: {
+    width: 106,
+    gap: 5,
+  },
+  gridTitle: {
+    fontFamily: FontFamily.semiBold,
     fontSize: 13,
   },
-  deviceCard: {
-    marginHorizontal: Spacing.lg,
-    marginVertical: Spacing.sm,
-    borderRadius: Radii.lg,
-    paddingVertical: Spacing.md,
+  gridSub: {
+    fontFamily: FontFamily.medium,
+    fontSize: 11.5,
   },
-  deviceHeader: {
+  deviceActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
+  deviceActionBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: Spacing.md,
-    marginBottom: 4,
-  },
-  deviceTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  deviceTitle: {
-    fontFamily: FontFamily.semiBold,
-    fontSize: 14.5,
-  },
-  deviceBtns: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  deviceActionPill: {
-    backgroundColor: Palette.brandGreen,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
     borderRadius: Radii.pill,
   },
-  deviceActionText: {
+  deviceActionLabel: {
     fontFamily: FontFamily.bold,
-    fontSize: 11.5,
-    color: '#121212',
-  },
-  deviceEmpty: {
-    fontFamily: FontFamily.regular,
     fontSize: 13,
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
-    lineHeight: 19,
   },
-  showMoreDevice: {
+  manageStorageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: Spacing.lg,
+    marginVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
+    paddingVertical: 12,
+    borderRadius: Radii.md,
   },
-  showMoreText: {
+  manageStorageText: {
+    flex: 1,
     fontFamily: FontFamily.semiBold,
-    fontSize: 13,
-    color: Palette.brandGreen,
+    fontSize: 13.5,
   },
   emptySection: {
     fontFamily: FontFamily.regular,
@@ -639,5 +865,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
     lineHeight: 20,
+  },
+  createSheetContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    gap: 14,
+  },
+  createOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 4,
+  },
+  createIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createOptionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 16,
+  },
+  createOptionSub: {
+    fontFamily: FontFamily.regular,
+    fontSize: 12.5,
+    marginTop: 2,
   },
 });

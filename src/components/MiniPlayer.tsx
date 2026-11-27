@@ -1,11 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ArtworkColorSampler } from '@/components/ArtworkColorSampler';
+import { AddToPlaylistModal } from '@/components/PlaylistModal';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Layout, Palette, Radii, Spacing } from '@/constants/theme';
+import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
 import { useAppTheme } from '@/store/useSettingsStore';
 import { buildDynamicPlayerGradient } from '@/utils/colorUtils';
@@ -34,10 +37,18 @@ export const MiniPlayer = React.memo(function MiniPlayer() {
   const theme = useAppTheme();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const activeDeviceName = usePlayerStore((s) => s.activeDeviceName);
   const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
 
+  const likedTrackIds = useLibraryStore((s) => s.likedTrackIds);
+  const playlists = useLibraryStore((s) => s.playlists);
+
+  const [savedInOpen, setSavedInOpen] = useState(false);
+
   if (!currentTrack) return null;
+
+  const isSaved =
+    likedTrackIds.includes(currentTrack.id) ||
+    playlists.some((p) => p.trackIds.includes(currentTrack.id));
 
   const bgTint = currentTrack.dominantColor
     ? hexWithAlpha(
@@ -51,72 +62,92 @@ export const MiniPlayer = React.memo(function MiniPlayer() {
     : theme.miniPlayerDefault;
 
   return (
-    <Pressable
-      onPress={() => router.push('/player')}
-      style={[styles.container, { backgroundColor: bgTint }]}
-      accessibilityRole="button"
-      accessibilityLabel={`Now playing ${currentTrack.title} by ${currentTrack.artist}. Tap to expand player.`}
-    >
-      <View style={styles.contentRow}>
-        <TrackArtwork
-          artworkUrl={currentTrack.artworkUrl}
-          localArtworkUri={currentTrack.localArtworkUri}
-          artworkAsset={currentTrack.artworkAsset}
-          dominantColor={currentTrack.dominantColor}
-          size={38}
-          borderRadius={6}
-          style={styles.artwork}
-        />
+    <>
+      <ArtworkColorSampler track={currentTrack} />
+      <Pressable
+        onPress={() => router.push('/player')}
+        style={[styles.container, { backgroundColor: bgTint }]}
+        accessibilityRole="button"
+        accessibilityLabel={`Now playing ${currentTrack.title} by ${currentTrack.artist}. Tap to expand player.`}
+      >
+        <View style={styles.contentRow}>
+          <TrackArtwork
+            artworkUrl={currentTrack.artworkUrl}
+            localArtworkUri={currentTrack.localArtworkUri}
+            artworkAsset={currentTrack.artworkAsset}
+            dominantColor={currentTrack.dominantColor}
+            size={40}
+            borderRadius={4}
+            style={styles.artwork}
+          />
 
-        <View style={styles.meta}>
-          <Text numberOfLines={1} style={styles.titleLine}>
-            <Text style={styles.title}>{currentTrack.title}</Text>
-            <Text style={styles.dot}> • </Text>
-            <Text style={styles.artist}>{currentTrack.artist}</Text>
-          </Text>
-
-          <View style={styles.deviceRow}>
-            <Ionicons name="bluetooth" size={11} color={Palette.brandGreenActive} />
-            <Text numberOfLines={1} style={styles.deviceText}>
-              {activeDeviceName.toUpperCase()}
+          <View style={styles.meta}>
+            <Text numberOfLines={1} style={styles.title}>
+              {currentTrack.title}
             </Text>
+            <Text numberOfLines={1} style={styles.artist}>
+              {currentTrack.artist}
+            </Text>
+          </View>
+
+          <View style={styles.controls}>
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                router.push('/devices');
+              }}
+              hitSlop={10}
+              style={styles.iconBtn}
+              accessibilityLabel="Connect to a device"
+            >
+              <Ionicons name="phone-portrait-outline" size={20} color={Palette.white} />
+            </Pressable>
+
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setSavedInOpen(true);
+              }}
+              hitSlop={10}
+              style={styles.iconBtn}
+              accessibilityLabel={isSaved ? 'Manage saved playlists' : 'Save to library or playlist'}
+            >
+              <Ionicons
+                name={isSaved ? 'checkmark-circle' : 'add-circle-outline'}
+                size={22}
+                color={isSaved ? Palette.brandGreen : Palette.white}
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                togglePlayPause();
+              }}
+              hitSlop={10}
+              style={styles.iconBtn}
+              accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+            >
+              <Ionicons
+                name={isPlaying ? 'pause' : 'play'}
+                size={23}
+                color={Palette.white}
+              />
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.controls}>
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              router.push('/devices');
-            }}
-            hitSlop={10}
-            style={styles.iconBtn}
-            accessibilityLabel="Output device"
-          >
-            <Ionicons name="bluetooth" size={20} color={Palette.brandGreenActive} />
-          </Pressable>
+        <MiniPlayerProgress />
+      </Pressable>
 
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              togglePlayPause();
-            }}
-            hitSlop={10}
-            style={styles.iconBtn}
-            accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
-          >
-            <Ionicons
-              name={isPlaying ? 'pause' : 'play'}
-              size={24}
-              color={Palette.white}
-            />
-          </Pressable>
-        </View>
-      </View>
-
-      <MiniPlayerProgress />
-    </Pressable>
+      <AddToPlaylistModal
+        visible={savedInOpen}
+        track={currentTrack}
+        onClose={() => setSavedInOpen(false)}
+      />
+    </>
   );
 });
 
@@ -125,7 +156,7 @@ const styles = StyleSheet.create({
     height: Layout.miniPlayerHeight,
     marginHorizontal: Spacing.sm,
     marginBottom: 4,
-    borderRadius: Radii.md,
+    borderRadius: Radii.lg,
     overflow: 'hidden',
     justifyContent: 'space-between',
   },
@@ -141,47 +172,29 @@ const styles = StyleSheet.create({
   meta: {
     flex: 1,
     justifyContent: 'center',
-    gap: 2,
-  },
-  titleLine: {
-    fontSize: 13.5,
+    gap: 1,
   },
   title: {
     fontFamily: FontFamily.semiBold,
     color: Palette.white,
     fontSize: 13.5,
   },
-  dot: {
-    color: Palette.mutedText,
-    fontSize: 12,
-  },
   artist: {
-    fontFamily: FontFamily.medium,
-    color: Palette.mutedText,
+    fontFamily: FontFamily.regular,
+    color: 'rgba(255,255,255,0.72)',
     fontSize: 12,
-  },
-  deviceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  deviceText: {
-    fontFamily: FontFamily.medium,
-    fontSize: 10,
-    color: Palette.brandGreenActive,
-    letterSpacing: 0.4,
   },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     marginLeft: Spacing.sm,
   },
   iconBtn: {
-    padding: 4,
+    padding: 3,
   },
   progressTrack: {
-    height: 2.5,
+    height: 2,
     backgroundColor: 'rgba(255,255,255,0.2)',
     marginHorizontal: 10,
     borderRadius: 2,

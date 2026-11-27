@@ -110,6 +110,7 @@ export interface UserProfile {
   name: string;
   email: string;
   gender?: string;
+  avatarUri?: string;
   avatarAsset?: number;
   playlistsCount: number;
   followersCount: number;
