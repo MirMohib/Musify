@@ -14,7 +14,8 @@ const INJECTED_INTERCEPTOR_JS = `
   window.__musifyBridgeInstalled = true;
 
   var sent = false;
-  var seenUrls = [];
+  var candidates = [];
+  var flushTimer = null;
 
   function cleanStreamUrl(rawUrl) {
     try {
@@ -28,30 +29,49 @@ const INJECTED_INTERCEPTOR_JS = `
     }
   }
 
-  function isAudioUrl(url) {
-    if (!url || typeof url !== 'string') return false;
-    if (url.indexOf('videoplayback') === -1) return false;
-    return (
-      url.indexOf('mime=audio') !== -1 ||
-      url.indexOf('mime%3Daudio') !== -1 ||
-      /[?&]itag=(139|140|141|249|250|251)(&|$)/.test(url)
-    );
+  function scoreUrl(url) {
+    if (!url || typeof url !== 'string') return -1;
+    if (url.indexOf('googlevideo.com/videoplayback') === -1 && url.indexOf('.m3u8') === -1) return -1;
+    // Skip tiny storyboard/thumbnail or init-only requests if better exists
+    if (url.indexOf('mime=audio') !== -1 || url.indexOf('mime%3Daudio') !== -1) return 100;
+    if (/[?&]itag=(140|141|139|251|250|249)(&|$)/.test(url)) return 95;
+    if (url.indexOf('.m3u8') !== -1) return 80;
+    if (/[?&]itag=(18|22)(&|$)/.test(url)) return 70;
+    return 50;
   }
 
-  function inspectUrl(url) {
-    if (sent || !url || typeof url !== 'string') return;
-    if (url.indexOf('videoplayback') !== -1 && seenUrls.length < 15) {
-      seenUrls.push(url.slice(0, 140));
-    }
-    if (isAudioUrl(url)) {
+  function flushBestCandidate() {
+    if (sent || candidates.length === 0) return;
+    candidates.sort(function(a, b) { return b.score - a.score; });
+    var best = candidates[0];
+    if (best && best.url) {
       sent = true;
       window.ReactNativeWebView.postMessage(
-        JSON.stringify({ type: 'STREAM_URL', url: cleanStreamUrl(url) })
+        JSON.stringify({ type: 'STREAM_URL', url: cleanStreamUrl(best.url) })
       );
     }
   }
 
-  // 1. Intercept Response.prototype.arrayBuffer (YouTube MSE ALWAYS calls this for audio chunks!)
+  function inspectUrl(url) {
+    if (sent || !url || typeof url !== 'string') return;
+    var s = scoreUrl(url);
+    if (s < 0) return;
+
+    candidates.push({ url: url, score: s });
+
+    // If we found an explicit audio-only stream, send immediately!
+    if (s >= 95) {
+      flushBestCandidate();
+      return;
+    }
+
+    // Otherwise wait 800ms to see if an audio-only track arrives right after video/manifest, then send best
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushBestCandidate, 800);
+    }
+  }
+
+  // 1. Intercept Response.prototype.arrayBuffer (MSE chunks)
   if (window.Response && Response.prototype.arrayBuffer) {
     var origArrayBuffer = Response.prototype.arrayBuffer;
     Response.prototype.arrayBuffer = function() {
@@ -62,7 +82,7 @@ const INJECTED_INTERCEPTOR_JS = `
     };
   }
 
-  // 2. Intercept fetch(input) including Request instances
+  // 2. Intercept fetch()
   var origFetch = window.fetch;
   window.fetch = function(input, init) {
     try {
@@ -86,7 +106,7 @@ const INJECTED_INTERCEPTOR_JS = `
     return origOpen.apply(this, arguments);
   };
 
-  // 4. PerformanceObserver with buffered: true to catch early resource loads
+  // 4. PerformanceObserver (buffered)
   try {
     if (window.PerformanceObserver) {
       var obs = new PerformanceObserver(function(list) {
@@ -114,17 +134,6 @@ const INJECTED_INTERCEPTOR_JS = `
       }
     } catch (e) {}
   }, 400);
-
-  setTimeout(function() {
-    if (!sent) {
-      window.ReactNativeWebView.postMessage(
-        JSON.stringify({
-          type: 'DEBUG',
-          info: 'seen=' + seenUrls.length + ' | sample=' + (seenUrls[0] || 'none'),
-        })
-      );
-    }
-  }, 10000);
 })();
 true;
 `;
@@ -140,15 +149,9 @@ export function YouTubeStreamBridge() {
 
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
-      const payload = JSON.parse(event.nativeEvent.data) as {
-        type?: string;
-        url?: string;
-        info?: string;
-      };
+      const payload = JSON.parse(event.nativeEvent.data) as { type?: string; url?: string };
       if (payload.type === 'STREAM_URL' && payload.url) {
         completeYouTubeBridgeJob(videoId, payload.url);
-      } else if (payload.type === 'DEBUG' && payload.info) {
-        failYouTubeBridgeJob(videoId, payload.info);
       }
     } catch {}
   };
