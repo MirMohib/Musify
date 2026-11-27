@@ -3,7 +3,7 @@
  * HearThis.at, Radio Browser, and Custom Audio Endpoint.
  * Resolves playable URIs with offline-first priority (downloaded file -> local URI -> stream URL).
  */
-
+import { youtubeSourceProvider } from '@/services/sources/youtubeSource';
 import { File } from 'expo-file-system';
 
 import { archiveSourceProvider } from '@/services/sources/archiveSource';
@@ -19,6 +19,7 @@ import type { AppSettings, DownloadRecord, MusicSourceId, Track } from '@/types/
 
 const PROVIDERS: Record<Exclude<MusicSourceId, 'seeded'>, MusicSourceProvider> = {
   local: localSourceProvider,
+  youtube: youtubeSourceProvider,
   audius: audiusSourceProvider,
   jamendo: jamendoSourceProvider,
   archive: archiveSourceProvider,
