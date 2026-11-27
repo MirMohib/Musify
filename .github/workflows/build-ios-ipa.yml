@@ -34,6 +34,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Patch ExpoModulesJSI Swift 6.2 concurrency
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptObject.swift";
+            if (fs.existsSync(file)) {
+              let code = fs.readFileSync(file, "utf8");
+              code = code.replace(
+                "try encode(JavaScriptValue.Slot(slot), runtime)",
+                "nonisolated(unsafe) let safeSlot = slot; try encode(JavaScriptValue.Slot(safeSlot), runtime)"
+              );
+              fs.writeFileSync(file, code);
+              console.log("Patched JavaScriptObject.swift successfully.");
+            }
+          '
+
       - name: Expo Prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
 
