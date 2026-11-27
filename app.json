@@ -10,6 +10,7 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "supportsTablet": true,
+      "bundleIdentifier": "com.mohib.musify",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -18,6 +19,7 @@
       }
     },
     "android": {
+      "package": "com.mohib.musify",
       "adaptiveIcon": {
         "backgroundColor": "#121212",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
