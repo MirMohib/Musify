@@ -36,28 +36,31 @@ jobs:
       - name: Patch Podfile to force Swift 5 language mode on Expo JSI pods
         working-directory: ios
         run: |
-          # Append a post_install hook that sets SWIFT_VERSION=5.0 and disables
-          # strict concurrency for all ExpoModulesJSI-related targets.
-          # This prevents Swift 6 Sendable/actor-isolation errors from Xcode 26.
-          cat >> Podfile <<'PATCH'
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              if target.name.include?('ExpoModulesJSI') ||
-                 target.name.include?('expo-modules-jsi') ||
-                 target.name.include?('ExpoModulesCore')
-                target.build_configurations.each do |config|
-                  config.build_settings['SWIFT_VERSION'] = '5.0'
-                  config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
-                  config.build_settings['OTHER_SWIFT_FLAGS'] ||= '$(inherited)'
-                  config.build_settings['OTHER_SWIFT_FLAGS'] += ' -swift-version 5'
+          # Expo's generated Podfile already has a post_install hook;
+          # CocoaPods forbids multiple, so we inject our Swift 5 override
+          # right after the existing "post_install do |installer|" line.
+          ruby -i -pe '
+            if /^\s*post_install do \|installer\|/ && !$patched
+              $patched = true
+              $_ += <<~RUBY
+                # --- Swift 5 patch for Xcode 26 / Swift 6 compat ---
+                installer.pods_project.targets.each do |target|
+                  if target.name.include?("ExpoModulesJSI") ||
+                     target.name.include?("expo-modules-jsi") ||
+                     target.name.include?("ExpoModulesCore")
+                    target.build_configurations.each do |config|
+                      config.build_settings["SWIFT_VERSION"] = "5.0"
+                      config.build_settings["SWIFT_STRICT_CONCURRENCY"] = "minimal"
+                      config.build_settings["OTHER_SWIFT_FLAGS"] = "$(inherited) -swift-version 5"
+                    end
+                  end
                 end
-              end
+                # --- end Swift 5 patch ---
+              RUBY
             end
-          end
-          PATCH
-          echo "--- Podfile tail ---"
-          tail -20 Podfile
+          ' Podfile
+          echo "--- Podfile post_install section ---"
+          grep -A 30 "post_install" Podfile | head -35
 
       - name: Install CocoaPods
         working-directory: ios
