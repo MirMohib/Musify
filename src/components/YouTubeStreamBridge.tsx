@@ -14,76 +14,87 @@ const INJECTED_INTERCEPTOR_JS = `
   window.__musifyBridgeInstalled = true;
 
   var sent = false;
-  function sendUrl(url) {
-    if (sent || !url || typeof url !== 'string') return;
-    if (url.indexOf('googlevideo.com/videoplayback') === -1) return;
-    // Strip byte-range query params so iOS AVPlayer & DownloadTask get full stream
+
+  function isAudioPlaybackUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (url.indexOf('googlevideo.com/videoplayback') === -1) return false;
+    // Match mime=audio OR standard YouTube audio-only itags (140=m4a 128k, 139=m4a 48k, 141=m4a 256k, 249/250/251=opus)
+    return (
+      url.indexOf('mime=audio') !== -1 ||
+      url.indexOf('mime%3Daudio') !== -1 ||
+      /[?&]itag=(139|140|141|249|250|251)(&|$)/.test(url)
+    );
+  }
+
+  function cleanStreamUrl(rawUrl) {
     try {
-      var u = new URL(url);
+      var u = new URL(rawUrl);
       u.searchParams.delete('range');
       u.searchParams.delete('rn');
       u.searchParams.delete('rbuf');
-      url = u.toString();
-    } catch (e) {}
-    sent = true;
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'STREAM_URL', url: url }));
+      return u.toString();
+    } catch (e) {
+      return rawUrl;
+    }
   }
 
-  // 1. Intercept fetch() calls made by YouTube's mobile web player
+  function sendUrl(url) {
+    if (sent || !isAudioPlaybackUrl(url)) return;
+    sent = true;
+    var finalUrl = cleanStreamUrl(url);
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'STREAM_URL', url: finalUrl }));
+  }
+
+  // 1. Intercept fetch()
   var origFetch = window.fetch;
   window.fetch = function(input, init) {
     try {
       var reqUrl = typeof input === 'string' ? input : (input && input.url);
-      if (reqUrl && reqUrl.indexOf('googlevideo.com/videoplayback') !== -1 && reqUrl.indexOf('mime=audio') !== -1) {
-        sendUrl(reqUrl);
-      }
+      if (isAudioPlaybackUrl(reqUrl)) sendUrl(reqUrl);
     } catch (e) {}
     return origFetch.apply(this, arguments);
   };
 
-  // 2. Intercept XMLHttpRequest calls
+  // 2. Intercept XMLHttpRequest
   var origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, reqUrl) {
     try {
-      if (reqUrl && reqUrl.indexOf('googlevideo.com/videoplayback') !== -1 && reqUrl.indexOf('mime=audio') !== -1) {
-        sendUrl(reqUrl);
-      }
+      if (isAudioPlaybackUrl(reqUrl)) sendUrl(reqUrl);
     } catch (e) {}
     return origOpen.apply(this, arguments);
   };
 
-  // 3. Also inspect ytInitialPlayerResponse + auto-tap play button on mobile YouTube
-  function scanPlayer() {
+  // 3. Scan Performance Resource Timing entries + force HTML5 video autoplay
+  function scan() {
     if (sent) return;
     try {
-      var pr = window.ytInitialPlayerResponse;
-      if (pr && pr.streamingData) {
-        var fmts = (pr.streamingData.adaptiveFormats || []).concat(pr.streamingData.formats || []);
-        var audio = fmts
-          .filter(function(f) { return f && f.url && String(f.mimeType || '').indexOf('audio/') === 0; })
-          .sort(function(a, b) { return Number(b.bitrate || 0) - Number(a.bitrate || 0); });
-        var best = audio.find(function(f) { return String(f.mimeType).indexOf('mp4') !== -1; }) || audio[0];
-        if (best && best.url) {
-          sendUrl(best.url);
-          return;
+      if (window.performance && performance.getEntriesByType) {
+        var entries = performance.getEntriesByType('resource');
+        for (var i = entries.length - 1; i >= 0; i--) {
+          if (entries[i] && isAudioPlaybackUrl(entries[i].name)) {
+            sendUrl(entries[i].name);
+            return;
+          }
         }
       }
     } catch (e) {}
 
-    // Trigger playback so YouTube's JS engine generates PO-token and requests googlevideo audio
     var video = document.querySelector('video');
     if (video) {
       video.muted = true;
-      video.play().catch(function() {});
+      video.playsInline = true;
+      if (video.paused) {
+        video.play().catch(function() {});
+      }
     }
-    var playBtn = document.querySelector('.ytp-large-play-button, button[aria-label*="Play"]');
-    if (playBtn) {
-      playBtn.click();
+    var btn = document.querySelector('.ytp-large-play-button, .ytp-play-button, button[aria-label*="Play"]');
+    if (btn) {
+      try { btn.click(); } catch (e) {}
     }
   }
 
-  setInterval(scanPlayer, 600);
-  setTimeout(scanPlayer, 300);
+  setInterval(scan, 400);
+  setTimeout(scan, 200);
 })();
 true;
 `;
@@ -104,7 +115,7 @@ export function YouTubeStreamBridge() {
         completeYouTubeBridgeJob(videoId, payload.url);
       }
     } catch {
-      // ignore malformed messages
+      // ignore
     }
   };
 
@@ -112,7 +123,10 @@ export function YouTubeStreamBridge() {
     <View pointerEvents="none" style={styles.hiddenContainer}>
       <WebView
         key={videoId}
-        source={{ uri: `https://m.youtube.com/watch?v=${encodeURIComponent(videoId)}` }}
+        source={{
+          uri: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&playsinline=1&controls=1&rel=0`,
+          headers: { Referer: 'https://www.youtube.com/' },
+        }}
         injectedJavaScriptBeforeContentLoaded={INJECTED_INTERCEPTOR_JS}
         injectedJavaScript={INJECTED_INTERCEPTOR_JS}
         onMessage={handleMessage}
@@ -121,7 +135,7 @@ export function YouTubeStreamBridge() {
         domStorageEnabled
         mediaPlaybackRequiresUserAction={false}
         allowsInlineMediaPlayback
-        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
+        originWhitelist={['*']}
       />
     </View>
   );
@@ -130,11 +144,11 @@ export function YouTubeStreamBridge() {
 const styles = StyleSheet.create({
   hiddenContainer: {
     position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-    left: -100,
-    top: -100,
-    overflow: 'hidden',
+    width: 320,
+    height: 200,
+    opacity: 0.01,
+    left: 0,
+    top: 0,
+    zIndex: -1,
   },
 });
