@@ -30,10 +30,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Switch ExpoModulesJSI Package.swift to Swift 5.9 tools version
+      - name: Switch ExpoModulesJSI swiftLanguageModes from .v6 to .v5
         run: |
-          find node_modules/expo-modules-jsi -name "Package.swift" -exec sed -i '' 's/swift-tools-version:[[:space:]]*6\.[0-9]*/swift-tools-version: 5.9/g' {} +
-          grep -rn "swift-tools-version" node_modules/expo-modules-jsi/
+          sed -i '' 's/swiftLanguageModes: \[\.v6\]/swiftLanguageModes: [.v5]/g' node_modules/expo-modules-jsi/apple/Package.swift
+          grep -n "swiftLanguageModes" node_modules/expo-modules-jsi/apple/Package.swift
 
       - name: Expo Prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
