@@ -7,7 +7,7 @@
 import type { MusicSourceProvider } from '@/services/sources/types';
 import type { Track } from '@/types/music';
 
-interface ArchiveDoc {
+export interface ArchiveDoc {
   identifier: string;
   title?: string;
   creator?: string | string[];
@@ -62,6 +62,26 @@ async function resolveArchiveAudioFile(identifier: string): Promise<{
   }
 }
 
+export function mapArchiveDoc(doc: ArchiveDoc): Track {
+  const artistName = normalizeCreator(doc.creator);
+  return {
+    id: `archive:${doc.identifier}`,
+    sourceId: 'archive',
+    sourceTrackId: doc.identifier,
+    title: doc.title || doc.identifier,
+    artist: artistName,
+    artistId: `archive_artist:${encodeURIComponent(artistName)}`,
+    album: 'Internet Archive Audio',
+    albumId: `archive_album:${encodeURIComponent(doc.identifier)}`,
+    year: doc.year ? Number(doc.year) || undefined : undefined,
+    durationMs: 0,
+    artworkUrl: `https://archive.org/services/img/${encodeURIComponent(doc.identifier)}`,
+    isDownloadable: true,
+    license: doc.licenseurl ? 'Creative Commons / Public Domain' : 'Internet Archive Audio',
+    dominantColor: '#2E3A59',
+  };
+}
+
 export const archiveSourceProvider: MusicSourceProvider = {
   id: 'archive',
   label: 'Internet Archive',
@@ -85,22 +105,20 @@ export const archiveSourceProvider: MusicSourceProvider = {
       throw new Error(`Internet Archive search failed (${res.status})`);
     }
     const json = (await res.json()) as { response?: { docs?: ArchiveDoc[] } };
-    const docs = json.response?.docs ?? [];
+    return (json.response?.docs ?? []).map(mapArchiveDoc);
+  },
 
-    return docs.map((doc) => ({
-      id: `archive:${doc.identifier}`,
-      sourceId: 'archive',
-      sourceTrackId: doc.identifier,
-      title: doc.title || doc.identifier,
-      artist: normalizeCreator(doc.creator),
-      album: 'Internet Archive Audio',
-      year: doc.year ? Number(doc.year) || undefined : undefined,
-      durationMs: 0,
-      artworkUrl: `https://archive.org/services/img/${encodeURIComponent(doc.identifier)}`,
-      isDownloadable: true,
-      license: doc.licenseurl ? 'Creative Commons / Public Domain' : 'Internet Archive Audio',
-      dominantColor: '#2E3A59',
-    }));
+  async getTrending(limit = 10): Promise<Track[]> {
+    const searchQuery =
+      'mediatype:audio AND (collection:freemusicarchive OR collection:netlabels OR collection:audio_music) AND (format:MP3 OR format:"VBR MP3")';
+    const url =
+      `https://archive.org/advancedsearch.php?q=${encodeURIComponent(searchQuery)}` +
+      `&fl[]=identifier,title,creator,year,licenseurl&sort[]=downloads+desc&rows=${limit}&page=1&output=json`;
+
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { response?: { docs?: ArchiveDoc[] } };
+    return (json.response?.docs ?? []).map(mapArchiveDoc);
   },
 
   async getTrack(sourceTrackId: string): Promise<Track | null> {
@@ -112,6 +130,9 @@ export const archiveSourceProvider: MusicSourceProvider = {
       sourceTrackId,
       title: sourceTrackId,
       artist: 'Internet Archive',
+      artistId: 'archive_artist:Internet%20Archive',
+      album: 'Internet Archive Audio',
+      albumId: `archive_album:${encodeURIComponent(sourceTrackId)}`,
       durationMs: resolved.durationMs,
       artworkUrl: `https://archive.org/services/img/${encodeURIComponent(sourceTrackId)}`,
       streamUrl: resolved.streamUrl,

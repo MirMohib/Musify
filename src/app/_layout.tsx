@@ -95,6 +95,12 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="album/[id]" />
+        <Stack.Screen name="artist/[id]" />
+        <Stack.Screen name="playlist/[id]" />
+        <Stack.Screen name="downloads" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="settings" />
         <Stack.Screen name="onboarding/start" options={{ animation: 'fade' }} />
         <Stack.Screen name="onboarding/signup" />
         <Stack.Screen name="onboarding/login" />

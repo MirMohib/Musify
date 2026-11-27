@@ -238,6 +238,24 @@ export async function deleteStoredTrack(trackId: string): Promise<void> {
   await db.runAsync('DELETE FROM tracks WHERE id = ?', [trackId]);
 }
 
+export async function purgeLegacySeededData(): Promise<void> {
+  const db = await getDatabase();
+  const legacyPlaylistIds = [
+    'playlist:front-left',
+    'playlist:top-songs',
+    'playlist:shazam',
+    'playlist:roadtrip',
+    'playlist:study',
+  ];
+  await db.runAsync("DELETE FROM liked_tracks WHERE track_id LIKE 'seeded:%'");
+  await db.runAsync("DELETE FROM recently_played WHERE track_id LIKE 'seeded:%'");
+  await db.runAsync("DELETE FROM playlist_tracks WHERE track_id LIKE 'seeded:%'");
+  await db.runAsync("DELETE FROM tracks WHERE source_id = 'seeded' OR id LIKE 'seeded:%'");
+  for (const plId of legacyPlaylistIds) {
+    await db.runAsync('DELETE FROM playlists WHERE id = ?', [plId]);
+  }
+}
+
 export async function getPlaylists(): Promise<Playlist[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<{

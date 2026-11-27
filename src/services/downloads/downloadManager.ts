@@ -36,6 +36,17 @@ function sanitizeFilename(track: Track): string {
   return `${slug}.mp3`;
 }
 
+/**
+ * Native Expo Modules Int64 values (file.size, bytesWritten, totalBytes)
+ * can arrive as JS `bigint` at runtime; convert explicitly before arithmetic or SQLite writes.
+ */
+export function toSafeNumber(value: unknown): number {
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function getDownloadedStorageBytes(records: Record<string, DownloadRecord>): number {
   let total = 0;
   for (const rec of Object.values(records)) {
@@ -43,10 +54,10 @@ export function getDownloadedStorageBytes(records: Record<string, DownloadRecord
       try {
         const f = new File(rec.localUri);
         if (f.exists) {
-          total += f.size || rec.bytesWritten || rec.totalBytes || 0;
+          total += toSafeNumber(f.size) || toSafeNumber(rec.bytesWritten) || toSafeNumber(rec.totalBytes);
         }
       } catch {
-        total += rec.bytesWritten || rec.totalBytes || 0;
+        total += toSafeNumber(rec.bytesWritten) || toSafeNumber(rec.totalBytes);
       }
     }
   }
@@ -85,6 +96,13 @@ export async function startTrackDownload(
 
   const dir = getDownloadDirectory(settings.downloadLocation);
   const destFile = new File(dir, sanitizeFilename(track));
+  try {
+    if (destFile.exists) {
+      destFile.delete();
+    }
+  } catch {
+    // ignore
+  }
   const now = Date.now();
 
   let record: DownloadRecord = {
@@ -102,12 +120,14 @@ export async function startTrackDownload(
   let lastPersistedProgress = 0;
   const task = new DownloadTask(downloadUrl, destFile, {
     onProgress: ({ bytesWritten, totalBytes }) => {
-      const progress = totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : 0;
+      const safeWritten = toSafeNumber(bytesWritten);
+      const safeTotal = toSafeNumber(totalBytes);
+      const progress = safeTotal > 0 ? Math.min(1, safeWritten / safeTotal) : 0;
       record = {
         ...record,
         status: 'downloading',
-        bytesWritten,
-        totalBytes,
+        bytesWritten: safeWritten,
+        totalBytes: safeTotal,
         progress,
         updatedAt: Date.now(),
       };
@@ -124,7 +144,7 @@ export async function startTrackDownload(
   try {
     const completedFile = await task.downloadAsync();
     if (completedFile) {
-      const finalBytes = completedFile.size || record.bytesWritten;
+      const finalBytes = toSafeNumber(completedFile.size) || record.bytesWritten;
       record = {
         ...record,
         status: 'completed',
@@ -224,12 +244,14 @@ export async function resumeTrackDownload(
       const savable = JSON.parse(currentRecord.resumeStateJson);
       task = DownloadTask.fromSavable(savable, {
         onProgress: ({ bytesWritten, totalBytes }) => {
-          const progress = totalBytes > 0 ? Math.min(1, bytesWritten / totalBytes) : 0;
+          const safeWritten = toSafeNumber(bytesWritten);
+          const safeTotal = toSafeNumber(totalBytes);
+          const progress = safeTotal > 0 ? Math.min(1, safeWritten / safeTotal) : 0;
           const next: DownloadRecord = {
             ...currentRecord,
             status: 'downloading',
-            bytesWritten,
-            totalBytes,
+            bytesWritten: safeWritten,
+            totalBytes: safeTotal,
             progress,
             updatedAt: Date.now(),
           };
@@ -258,7 +280,7 @@ export async function resumeTrackDownload(
   try {
     const file = await task.resumeAsync();
     if (file) {
-      const finalBytes = file.size || activeRec.bytesWritten;
+      const finalBytes = toSafeNumber(file.size) || activeRec.bytesWritten;
       const done: DownloadRecord = {
         ...activeRec,
         status: 'completed',

@@ -4,6 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Dimensions,
   Pressable,
   ScrollView,
@@ -16,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeekSlider } from '@/components/SeekSlider';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Radii, Shadows, Spacing } from '@/constants/theme';
+import { isTrackDownloadable } from '@/services/sources/sourceRegistry';
+import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
 import { getSourceLabel } from '@/utils/format';
@@ -45,11 +49,18 @@ export default function FullPlayerScreen() {
   const likedTrackIds = useLibraryStore((s) => s.likedTrackIds);
   const toggleLike = useLibraryStore((s) => s.toggleLike);
 
+  const downloadRecord = useDownloadStore((s) =>
+    currentTrack ? s.downloads[currentTrack.id] : undefined
+  );
+  const downloadTrack = useDownloadStore((s) => s.downloadTrack);
+  const pauseDownload = useDownloadStore((s) => s.pauseDownload);
+  const resumeDownload = useDownloadStore((s) => s.resumeDownload);
+
   const [lyricsExpanded, setLyricsExpanded] = useState(false);
 
   if (!currentTrack) {
     return (
-      <View style={[styles.emptyRoot, { paddingTop: insets.top }]}>
+      <View style={[styles.emptyRoot, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => router.back()}>
           <Ionicons name="chevron-down" size={28} color={Palette.white} />
         </Pressable>
@@ -61,6 +72,30 @@ export default function FullPlayerScreen() {
   const isLiked = likedTrackIds.includes(currentTrack.id);
   const topColor = currentTrack.dominantColor || Palette.playerGradientTop;
   const artSize = Math.min(SCREEN_WIDTH - 52, 380);
+
+  const canDownload = isTrackDownloadable(currentTrack);
+  const isDownloaded = downloadRecord?.status === 'completed';
+  const isDownloading = downloadRecord?.status === 'downloading';
+  const isPaused = downloadRecord?.status === 'paused';
+
+  const handleDownloadPress = async () => {
+    try {
+      if (isDownloading) {
+        await pauseDownload(currentTrack.id);
+      } else if (isPaused) {
+        await resumeDownload(currentTrack);
+      } else if (!isDownloaded) {
+        await downloadTrack(currentTrack);
+      } else {
+        router.push('/downloads');
+      }
+    } catch (err) {
+      Alert.alert(
+        'Download Failed',
+        err instanceof Error ? err.message : 'Unable to download this track.'
+      );
+    }
+  };
 
   return (
     <LinearGradient
@@ -78,7 +113,6 @@ export default function FullPlayerScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top Header matching Figma Track View 12:1973 / 12:2030 / 13:1292 */}
         <View style={styles.topBar}>
           <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Minimize player">
             <Ionicons name="chevron-down" size={26} color={Palette.white} />
@@ -99,7 +133,6 @@ export default function FullPlayerScreen() {
           </Pressable>
         </View>
 
-        {/* Artwork matching Figma 12:1997 */}
         <View style={[styles.artworkWrap, Shadows.artwork]}>
           <TrackArtwork
             artworkUrl={currentTrack.artworkUrl}
@@ -110,42 +143,75 @@ export default function FullPlayerScreen() {
           />
         </View>
 
-        {/* Track Title + Artist + Heart */}
+        {/* Track Title + Artist + Download + Heart */}
         <View style={styles.titleRow}>
           <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={styles.trackTitle} numberOfLines={1}>
               {currentTrack.title}
             </Text>
-            <Text style={styles.trackArtist} numberOfLines={1}>
-              {currentTrack.artist}
-            </Text>
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: '/artist/[id]',
+                  params: {
+                    id: currentTrack.artistId || currentTrack.artist,
+                    name: currentTrack.artist,
+                  },
+                })
+              }
+            >
+              <Text style={styles.trackArtist} numberOfLines={1}>
+                {currentTrack.artist}
+              </Text>
+            </Pressable>
           </View>
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              toggleLike(currentTrack);
-            }}
-            hitSlop={10}
-            accessibilityLabel={isLiked ? 'Unlike song' : 'Like song'}
-          >
-            <Ionicons
-              name={isLiked ? 'heart' : 'heart-outline'}
-              size={25}
-              color={isLiked ? Palette.brandGreen : Palette.white}
-            />
-          </Pressable>
+
+          <View style={styles.titleActions}>
+            {canDownload && (
+              <Pressable
+                onPress={handleDownloadPress}
+                hitSlop={10}
+                style={styles.dlBtn}
+                accessibilityLabel={isDownloaded ? 'Downloaded' : 'Download track'}
+              >
+                {isDownloading ? (
+                  <View style={styles.dlProgressWrap}>
+                    <ActivityIndicator size="small" color={Palette.brandGreen} />
+                    <Text style={styles.dlPct}>
+                      {Math.round((downloadRecord?.progress ?? 0) * 100)}%
+                    </Text>
+                  </View>
+                ) : isDownloaded ? (
+                  <Ionicons name="checkmark-circle" size={24} color={Palette.brandGreen} />
+                ) : isPaused ? (
+                  <Ionicons name="pause-circle-outline" size={24} color={Palette.warning} />
+                ) : (
+                  <Ionicons name="arrow-down-circle-outline" size={24} color={Palette.white} />
+                )}
+              </Pressable>
+            )}
+
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                toggleLike(currentTrack);
+              }}
+              hitSlop={10}
+              accessibilityLabel={isLiked ? 'Unlike song' : 'Like song'}
+            >
+              <Ionicons
+                name={isLiked ? 'heart' : 'heart-outline'}
+                size={25}
+                color={isLiked ? Palette.brandGreen : Palette.white}
+              />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Interactive Seek Scrubber */}
         <View style={styles.sliderWrap}>
-          <SeekSlider
-            positionMs={positionMs}
-            durationMs={durationMs}
-            onSeek={seekTo}
-          />
+          <SeekSlider positionMs={positionMs} durationMs={durationMs} onSeek={seekTo} />
         </View>
 
-        {/* Transport Controls matching Figma 13:1265..13:1291 */}
         <View style={styles.controlsRow}>
           <Pressable onPress={toggleShuffle} hitSlop={10} accessibilityLabel="Shuffle">
             <Ionicons
@@ -198,7 +264,6 @@ export default function FullPlayerScreen() {
           </Pressable>
         </View>
 
-        {/* Bottom Device / Share / Queue row */}
         <View style={styles.bottomActions}>
           <Pressable
             onPress={() => router.push('/devices')}
@@ -224,13 +289,12 @@ export default function FullPlayerScreen() {
           </View>
         </View>
 
-        {/* Lyrics Card matching Figma 13:1303..13:1307 */}
         <Pressable
           onPress={() => setLyricsExpanded((v) => !v)}
           style={styles.lyricsCard}
         >
           <View style={styles.lyricsHeader}>
-            <Text style={styles.lyricsTitle}>Lyrics</Text>
+            <Text style={styles.lyricsTitle}>Track Info &amp; Lyrics</Text>
             <View style={styles.morePill}>
               <Text style={styles.morePillText}>
                 {lyricsExpanded ? 'LESS' : 'MORE'}
@@ -247,9 +311,13 @@ export default function FullPlayerScreen() {
             <View style={styles.lyricsBody}>
               <Text style={styles.lyricsText}>
                 {currentTrack.lyricsPreview ||
-                  `Playing from ${getSourceLabel(currentTrack.sourceId)} · ${
+                  `Source: ${getSourceLabel(currentTrack.sourceId)}\nLicense: ${
                     currentTrack.license || 'Audio Stream'
-                  }.\n\nNo synchronized lyrics provided for this independent release.`}
+                  }\n${
+                    canDownload
+                      ? 'Offline Download: Supported (Creative Commons / Free)'
+                      : 'Offline Download: Streaming / Local only'
+                  }`}
               </Text>
             </View>
           )}
@@ -260,9 +328,7 @@ export default function FullPlayerScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
+  root: { flex: 1 },
   emptyRoot: {
     flex: 1,
     backgroundColor: Palette.bgDarkest,
@@ -315,6 +381,25 @@ const styles = StyleSheet.create({
     fontSize: 15.5,
     color: Palette.mutedText,
     marginTop: 3,
+  },
+  titleActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  dlBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dlProgressWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dlPct: {
+    fontFamily: FontFamily.bold,
+    fontSize: 11,
+    color: Palette.brandGreen,
   },
   sliderWrap: {
     marginTop: 18,
@@ -390,7 +475,7 @@ const styles = StyleSheet.create({
   },
   lyricsTitle: {
     fontFamily: FontFamily.semiBold,
-    fontSize: 18,
+    fontSize: 17,
     color: Palette.white,
   },
   morePill: {
@@ -412,8 +497,8 @@ const styles = StyleSheet.create({
   },
   lyricsText: {
     fontFamily: FontFamily.semiBold,
-    fontSize: 17,
-    lineHeight: 26,
+    fontSize: 15.5,
+    lineHeight: 24,
     color: Palette.white,
   },
 });

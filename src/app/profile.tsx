@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DockedMiniPlayerFooter } from '@/components/DockedMiniPlayerFooter';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FigmaAssets } from '@/constants/figmaAssets';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
@@ -31,80 +32,88 @@ export default function ProfileScreen() {
   const [draftName, setDraftName] = useState(profile.name);
 
   return (
-    <ScrollView
-      style={[styles.root, { backgroundColor: theme.background }]}
-      contentContainerStyle={{ paddingBottom: 32 }}
-      showsVerticalScrollIndicator={false}
-    >
-      <LinearGradient
-        colors={['#3A3A3A', theme.background]}
-        style={[styles.hero, { paddingTop: insets.top + 8 }]}
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topRow}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="chevron-back" size={24} color={Palette.white} />
-          </Pressable>
-          <Pressable onPress={() => router.push('/(tabs)/settings')} hitSlop={10}>
-            <Ionicons name="ellipsis-horizontal" size={24} color={Palette.white} />
-          </Pressable>
-        </View>
-
-        <View style={styles.centerBlock}>
-          <TrackArtwork artworkAsset={FigmaAssets.editors1} size={122} circular />
-          <Text style={styles.userName}>{profile.name}</Text>
-          <Pressable
-            onPress={() => {
-              setDraftName(profile.name);
-              setEditing(true);
-            }}
-            style={styles.editPill}
-          >
-            <Text style={styles.editPillText}>Edit Profile</Text>
-          </Pressable>
-        </View>
-
-        {/* Stats matching Figma 101:3126 */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>{playlists.length}</Text>
-            <Text style={styles.statLabel}>PLAYLISTS</Text>
-          </View>
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>{profile.followersCount}</Text>
-            <Text style={styles.statLabel}>FOLLOWERS</Text>
-          </View>
-          <View style={styles.statCol}>
-            <Text style={styles.statValue}>{profile.followingCount}</Text>
-            <Text style={styles.statLabel}>FOLLOWING</Text>
-          </View>
-        </View>
-      </LinearGradient>
-
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Playlists</Text>
-      {playlists.slice(0, 5).map((pl) => (
-        <Pressable
-          key={pl.id}
-          onPress={() => router.push(`/playlist/${encodeURIComponent(pl.id)}`)}
-          style={styles.plRow}
+        <LinearGradient
+          colors={['#3A3A3A', theme.background]}
+          style={[styles.hero, { paddingTop: insets.top + 8 }]}
         >
-          <TrackArtwork artworkAsset={pl.artworkAsset} size={50} borderRadius={2} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.plTitle, { color: theme.text }]}>{pl.name}</Text>
-            <Text style={[styles.plSub, { color: theme.textSecondary }]}>
-              {pl.likesCount ?? pl.trackIds.length} {pl.likesCount ? 'likes' : 'songs'}
-            </Text>
+          <View style={styles.topRow}>
+            <Pressable onPress={() => router.back()} hitSlop={10}>
+              <Ionicons name="chevron-back" size={24} color={Palette.white} />
+            </Pressable>
+            <Pressable onPress={() => router.push('/settings')} hitSlop={10}>
+              <Ionicons name="settings-outline" size={22} color={Palette.white} />
+            </Pressable>
           </View>
+
+          <View style={styles.centerBlock}>
+            <TrackArtwork artworkAsset={FigmaAssets.editors1} size={122} circular />
+            <Text style={styles.userName}>{profile.name}</Text>
+            <Pressable
+              onPress={() => {
+                setDraftName(profile.name);
+                setEditing(true);
+              }}
+              style={styles.editPill}
+            >
+              <Text style={styles.editPillText}>Edit Profile</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statCol}>
+              <Text style={styles.statValue}>{playlists.length}</Text>
+              <Text style={styles.statLabel}>PLAYLISTS</Text>
+            </View>
+            <View style={styles.statCol}>
+              <Text style={styles.statValue}>{profile.followersCount}</Text>
+              <Text style={styles.statLabel}>FOLLOWERS</Text>
+            </View>
+            <View style={styles.statCol}>
+              <Text style={styles.statValue}>{profile.followingCount}</Text>
+              <Text style={styles.statLabel}>FOLLOWING</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Playlists</Text>
+        {playlists.length === 0 ? (
+          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+            No custom playlists yet. Create one in Your Library!
+          </Text>
+        ) : (
+          playlists.slice(0, 5).map((pl) => (
+            <Pressable
+              key={pl.id}
+              onPress={() => router.push(`/playlist/${encodeURIComponent(pl.id)}`)}
+              style={styles.plRow}
+            >
+              <TrackArtwork artworkUrl={pl.artworkUrl} size={50} borderRadius={2} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.plTitle, { color: theme.text }]}>{pl.name}</Text>
+                <Text style={[styles.plSub, { color: theme.textSecondary }]}>
+                  {pl.trackIds.length} songs
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </Pressable>
+          ))
+        )}
+
+        <Pressable
+          onPress={() => router.push('/(tabs)/library')}
+          style={styles.seeAllRow}
+        >
+          <Text style={[styles.seeAllText, { color: theme.text }]}>Go to Your Library</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
         </Pressable>
-      ))}
+      </ScrollView>
 
-      <Pressable
-        onPress={() => router.push('/(tabs)/library')}
-        style={styles.seeAllRow}
-      >
-        <Text style={[styles.seeAllText, { color: theme.text }]}>See all playlists</Text>
-        <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-      </Pressable>
+      <DockedMiniPlayerFooter />
 
       <Modal visible={editing} transparent animationType="fade" onRequestClose={() => setEditing(false)}>
         <View style={styles.modalBackdrop}>
@@ -136,7 +145,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -199,6 +208,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
+  },
+  emptyText: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13.5,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
   plRow: {
     flexDirection: 'row',

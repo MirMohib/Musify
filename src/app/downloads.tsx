@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DockedMiniPlayerFooter } from '@/components/DockedMiniPlayerFooter';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -69,7 +70,6 @@ export default function DownloadsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Offline Only Toggle Card */}
         <View style={[styles.card, { backgroundColor: theme.surfaceElevated }]}>
           <View style={styles.switchRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
@@ -87,7 +87,6 @@ export default function DownloadsScreen() {
           </View>
         </View>
 
-        {/* Storage Usage Meter */}
         <View style={[styles.card, { backgroundColor: theme.surfaceElevated }]}>
           <View style={styles.storageTop}>
             <Text style={[styles.cardTitle, { color: theme.text }]}>Storage usage</Text>
@@ -112,7 +111,6 @@ export default function DownloadsScreen() {
           </View>
         </View>
 
-        {/* Active / Paused / Error Downloads */}
         {inProgress.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionHeading, { color: theme.text }]}>
@@ -128,11 +126,7 @@ export default function DownloadsScreen() {
                   key={rec.trackId}
                   style={[styles.dlRow, { backgroundColor: theme.surface }]}
                 >
-                  <TrackArtwork
-                    artworkUrl={track.artworkUrl}
-                    artworkAsset={track.artworkAsset}
-                    size={46}
-                  />
+                  <TrackArtwork artworkUrl={track.artworkUrl} size={46} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.dlTitle, { color: theme.text }]} numberOfLines={1}>
                       {track.title}
@@ -177,15 +171,14 @@ export default function DownloadsScreen() {
           </View>
         )}
 
-        {/* Completed Offline Tracks */}
         <View style={styles.section}>
           <Text style={[styles.sectionHeading, { color: theme.text }]}>
             Downloaded Tracks ({completed.length})
           </Text>
           {completed.length === 0 ? (
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              No downloaded tracks yet. Search Audius, Internet Archive, or Jamendo and tap the
-              download icon on any Creative Commons / downloadable track.
+              No downloaded tracks yet. Tap the download icon on any track from Home, Search,
+              Albums, or Full Player to save it for offline playback.
             </Text>
           ) : (
             completed.map((rec) => {
@@ -198,11 +191,7 @@ export default function DownloadsScreen() {
                   onPress={() => playTrack(track, completedTracks, 'Downloads')}
                   style={styles.completedRow}
                 >
-                  <TrackArtwork
-                    artworkUrl={track.artworkUrl}
-                    artworkAsset={track.artworkAsset}
-                    size={48}
-                  />
+                  <TrackArtwork artworkUrl={track.artworkUrl} size={48} />
                   <View style={{ flex: 1 }}>
                     <Text
                       style={[
@@ -226,6 +215,8 @@ export default function DownloadsScreen() {
           )}
         </View>
       </ScrollView>
+
+      <DockedMiniPlayerFooter />
     </View>
   );
 }
@@ -245,7 +236,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 36,
+    paddingBottom: 24,
     gap: 14,
   },
   card: {

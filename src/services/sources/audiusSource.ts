@@ -33,7 +33,7 @@ async function getDiscoveryHost(): Promise<string> {
   return FALLBACK_HOST;
 }
 
-interface AudiusTrackDto {
+export interface AudiusTrackDto {
   id: string;
   title: string;
   duration?: number;
@@ -53,20 +53,25 @@ interface AudiusTrackDto {
   };
 }
 
-function mapAudiusTrack(item: AudiusTrackDto, host: string): Track {
+export function mapAudiusTrack(item: AudiusTrackDto, host: string): Track {
   const artworkUrl =
     item.artwork?.['480x480'] ?? item.artwork?.['1000x1000'] ?? item.artwork?.['150x150'];
   const downloadable = Boolean(item.is_downloadable || item.downloadable);
   const year = item.release_date ? Number(item.release_date.slice(0, 4)) || undefined : undefined;
+  const artistName = item.user?.name || item.user?.handle || 'Audius Artist';
+  const albumName = item.genre ? `${item.genre} · Audius` : 'Audius Releases';
 
   return {
     id: `audius:${item.id}`,
     sourceId: 'audius',
     sourceTrackId: item.id,
     title: item.title || 'Untitled',
-    artist: item.user?.name || item.user?.handle || 'Audius Artist',
-    artistId: item.user?.id ? `audius:${item.user.id}` : undefined,
-    album: item.genre ? `${item.genre} on Audius` : 'Audius Stream',
+    artist: artistName,
+    artistId: item.user?.id
+      ? `audius:${item.user.id}`
+      : `audius_artist:${encodeURIComponent(artistName)}`,
+    album: albumName,
+    albumId: `audius_album:${encodeURIComponent(albumName)}`,
     year,
     durationMs: Math.round((item.duration || 0) * 1000),
     artworkUrl,

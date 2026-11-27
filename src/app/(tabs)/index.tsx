@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,36 +14,107 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PlaylistCard } from '@/components/PlaylistCard';
 import { SongTile } from '@/components/SongTile';
-import { FigmaAssets } from '@/constants/figmaAssets';
-import { SEEDED_ALBUMS, SEEDED_ARTISTS } from '@/data/seedCatalog';
-import { FontFamily, Palette, Spacing } from '@/constants/theme';
+import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
-import { useAppTheme } from '@/store/useSettingsStore';
+import { useAppTheme, useSettingsStore } from '@/store/useSettingsStore';
+import type { Track } from '@/types/music';
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
+  const offlineOnly = useSettingsStore((s) => s.settings.offlineOnly);
 
   const tracksById = useLibraryStore((s) => s.tracksById);
   const playlists = useLibraryStore((s) => s.playlists);
+  const likedTrackIds = useLibraryStore((s) => s.likedTrackIds);
   const recentlyPlayedIds = useLibraryStore((s) => s.recentlyPlayedIds);
-  const remoteTrending = useLibraryStore((s) => s.remoteTrending);
+  const discoveryFeed = useLibraryStore((s) => s.discoveryFeed);
+  const isLoadingFeed = useLibraryStore((s) => s.isLoadingFeed);
+  const isScanningDevice = useLibraryStore((s) => s.isScanningDevice);
+  const refreshDiscovery = useLibraryStore((s) => s.refreshDiscovery);
+  const rescanDeviceMusic = useLibraryStore((s) => s.rescanDeviceMusic);
+
+  const downloads = useDownloadStore((s) => s.downloads);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const playTrack = usePlayerStore((s) => s.playTrack);
-  const downloads = useDownloadStore((s) => s.downloads);
-  const downloadTrack = useDownloadStore((s) => s.downloadTrack);
 
   const recentTracks = useMemo(
     () => recentlyPlayedIds.map((id) => tracksById[id]).filter(Boolean),
     [recentlyPlayedIds, tracksById]
   );
 
-  const editorPlaylists = useMemo(
-    () => playlists.filter((p) => ['playlist:front-left', 'playlist:top-songs', 'playlist:roadtrip'].includes(p.id)),
-    [playlists]
+  const localTracks = useMemo(
+    () => Object.values(tracksById).filter((t) => t.sourceId === 'local'),
+    [tracksById]
+  );
+
+  const downloadedTracks = useMemo(
+    () =>
+      Object.values(downloads)
+        .filter((d) => d.status === 'completed')
+        .map((d) => tracksById[d.trackId])
+        .filter(Boolean),
+    [downloads, tracksById]
+  );
+
+  // Extract unique artists and albums dynamically from live provider + device tracks
+  const featuredArtists = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; artworkUrl?: string; color?: string }>();
+    const pool = [...recentTracks, ...discoveryFeed.allTracks, ...localTracks];
+    for (const t of pool) {
+      if (!t.artist || map.has(t.artist.toLowerCase())) continue;
+      map.set(t.artist.toLowerCase(), {
+        id: t.artistId || t.artist,
+        name: t.artist,
+        artworkUrl: t.artworkUrl,
+        color: t.dominantColor,
+      });
+      if (map.size >= 10) break;
+    }
+    return Array.from(map.values());
+  }, [recentTracks, discoveryFeed.allTracks, localTracks]);
+
+  const featuredAlbums = useMemo(() => {
+    const map = new Map<string, { id: string; title: string; artist: string; artworkUrl?: string; color?: string }>();
+    const pool = [...discoveryFeed.allTracks, ...localTracks];
+    for (const t of pool) {
+      if (!t.album) continue;
+      const key = t.albumId || t.album;
+      if (map.has(key)) continue;
+      map.set(key, {
+        id: key,
+        title: t.album,
+        artist: t.artist,
+        artworkUrl: t.artworkUrl,
+        color: t.dominantColor,
+      });
+      if (map.size >= 10) break;
+    }
+    return Array.from(map.values());
+  }, [discoveryFeed.allTracks, localTracks]);
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      rescanDeviceMusic(false),
+      offlineOnly ? Promise.resolve() : refreshDiscovery(),
+    ]);
+  };
+
+  const renderTrackRow = (track: Track, list: Track[], contextTitle: string) => (
+    <SongTile
+      key={track.id}
+      track={track}
+      isActive={currentTrack?.id === track.id}
+      showSourceBadge
+      showDownloadAction
+      onPress={() => playTrack(track, list, contextTitle)}
+      onMorePress={() =>
+        router.push({ pathname: '/track-options', params: { trackId: track.id } })
+      }
+    />
   );
 
   return (
@@ -50,30 +122,39 @@ export default function HomeScreen() {
       style={[styles.root, { backgroundColor: theme.backgroundHome }]}
       contentContainerStyle={{
         paddingTop: insets.top + 12,
-        paddingBottom: 28,
+        paddingBottom: 32,
       }}
+      refreshControl={
+        <RefreshControl
+          refreshing={isLoadingFeed || isScanningDevice}
+          onRefresh={handleRefresh}
+          tintColor={Palette.brandGreen}
+        />
+      }
       showsVerticalScrollIndicator={false}
     >
-      {/* Header row matching Figma Home 1:346 */}
+      {/* Top Header */}
       <View style={styles.headerRow}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Recently played</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>
+          {recentTracks.length > 0 ? 'Recently played' : 'Discover on Musify'}
+        </Text>
         <View style={styles.headerIcons}>
           <Pressable
-            onPress={() => router.push('/(tabs)/downloads')}
+            onPress={() => router.push('/downloads')}
             hitSlop={10}
-            accessibilityLabel="Downloads and updates"
+            accessibilityLabel="Downloads and Offline"
           >
-            <Ionicons name="notifications-outline" size={23} color={theme.text} />
+            <Ionicons name="arrow-down-circle-outline" size={24} color={theme.text} />
           </Pressable>
           <Pressable
             onPress={() => router.push('/queue')}
             hitSlop={10}
-            accessibilityLabel="Listening history and queue"
+            accessibilityLabel="Playback Queue"
           >
             <Ionicons name="time-outline" size={23} color={theme.text} />
           </Pressable>
           <Pressable
-            onPress={() => router.push('/(tabs)/settings')}
+            onPress={() => router.push('/settings')}
             hitSlop={10}
             accessibilityLabel="Settings"
           >
@@ -82,137 +163,260 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Recently played horizontal shelf (105x105 cards, square albums + circular artists) */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.horizontalList}
-      >
-        <PlaylistCard
-          title={SEEDED_ALBUMS[0].title}
-          artworkAsset={SEEDED_ALBUMS[0].artworkAsset}
-          size={106}
-          onPress={() => router.push(`/album/${encodeURIComponent(SEEDED_ALBUMS[0].id)}`)}
-        />
-        <PlaylistCard
-          title={SEEDED_ARTISTS[0].name}
-          artworkAsset={SEEDED_ARTISTS[0].artworkAsset}
-          size={106}
-          circular
-          onPress={() => router.push(`/artist/${encodeURIComponent(SEEDED_ARTISTS[0].id)}`)}
-        />
-        <PlaylistCard
-          title={SEEDED_ARTISTS[1].name}
-          artworkAsset={SEEDED_ARTISTS[1].artworkAsset}
-          size={106}
-          circular
-          onPress={() => router.push(`/artist/${encodeURIComponent(SEEDED_ARTISTS[1].id)}`)}
-        />
-        <PlaylistCard
-          title={SEEDED_ALBUMS[1].title}
-          artworkAsset={SEEDED_ALBUMS[1].artworkAsset}
-          size={106}
-          onPress={() => router.push(`/album/${encodeURIComponent(SEEDED_ALBUMS[1].id)}`)}
-        />
-        {recentTracks.slice(0, 4).map((track) => (
-          <PlaylistCard
-            key={`recent-${track.id}`}
-            title={track.title}
-            artworkUrl={track.artworkUrl}
-            artworkAsset={track.artworkAsset}
-            dominantColor={track.dominantColor}
-            size={106}
-            onPress={() => playTrack(track, recentTracks, 'Recently played')}
-          />
-        ))}
-      </ScrollView>
-
-      {/* Review Spotlight matching Figma "#SPOTIFYWRAPPED / Your 2021 in review" */}
-      <View style={styles.reviewHeader}>
-        <Image source={FigmaAssets.wrappedBadge} style={styles.reviewBadge} contentFit="cover" />
-        <View style={styles.reviewTextCol}>
-          <Text style={[styles.reviewTag, { color: theme.textMuted }]}>#MUSIFYWRAPPED</Text>
-          <Text style={[styles.reviewTitle, { color: theme.text }]}>Your Year in Review</Text>
-        </View>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.horizontalList}
-      >
-        <PlaylistCard
-          title="Your Top Songs"
-          artworkAsset={FigmaAssets.topSongs}
-          size={154}
-          onPress={() => router.push('/playlist/playlist:top-songs')}
-        />
-        <PlaylistCard
-          title="Your Artists Revealed"
-          artworkAsset={FigmaAssets.artistsRevealed}
-          size={154}
-          onPress={() => router.push('/playlist/liked')}
-        />
-      </ScrollView>
-
-      {/* Editor's picks */}
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>Editor’s picks</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.horizontalList}
-      >
-        <PlaylistCard
-          title="Hot Indie & Rap"
-          subtitle="Ed Sheeran, Big Sean, Juice WRLD, Post Malone"
-          artworkAsset={FigmaAssets.editors1}
-          size={154}
-          onPress={() => router.push('/playlist/playlist:shazam')}
-        />
-        <PlaylistCard
-          title="Front Left"
-          subtitle="Mitski, Tame Impala, Glass Animals, Charli XCX"
-          artworkAsset={FigmaAssets.editors2}
-          size={154}
-          onPress={() => router.push('/playlist/playlist:front-left')}
-        />
-        <PlaylistCard
-          title="Late Night Vibes"
-          subtitle="No Rome, FKA twigs, Troye Sivan"
-          artworkAsset={FigmaAssets.editors3}
-          size={154}
-          onPress={() =>
-            router.push(
-              `/playlist/${encodeURIComponent(editorPlaylists[2]?.id ?? 'playlist:roadtrip')}`
-            )
-          }
-        />
-      </ScrollView>
-
-      {/* Live Trending from Audius & Jamendo */}
-      {remoteTrending.length > 0 && (
-        <View style={styles.trendingSection}>
-          <View style={styles.trendingHeader}>
-            <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 0, marginBottom: 0 }]}>
-              Trending on Audius &amp; Jamendo
-            </Text>
-            <Text style={styles.liveTag}>LIVE</Text>
-          </View>
-          {remoteTrending.slice(0, 6).map((track) => (
-            <SongTile
-              key={track.id}
-              track={track}
-              isActive={currentTrack?.id === track.id}
-              showSourceBadge
-              showDownloadAction
-              downloadRecord={downloads[track.id]}
-              onPress={() => playTrack(track, remoteTrending, 'Trending')}
-              onDownloadPress={() => downloadTrack(track).catch(() => {})}
-              onMorePress={() =>
-                router.push({ pathname: '/track-options', params: { trackId: track.id } })
-              }
+      {/* Recently Played Shelf from SQLite */}
+      {recentTracks.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalList}
+        >
+          {recentTracks.slice(0, 12).map((track) => (
+            <PlaylistCard
+              key={`recent-${track.id}`}
+              title={track.title}
+              subtitle={track.artist}
+              artworkUrl={track.artworkUrl}
+              dominantColor={track.dominantColor}
+              size={112}
+              onPress={() => playTrack(track, recentTracks, 'Recently played')}
             />
           ))}
+        </ScrollView>
+      )}
+
+      {/* Quick Access Library Shortcuts (Real SQLite counts) */}
+      <View style={styles.quickGrid}>
+        <Pressable
+          onPress={() => router.push('/playlist/liked')}
+          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: Palette.likedGradientStart }]}>
+            <Ionicons name="heart" size={20} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
+              Liked Songs
+            </Text>
+            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
+              {likedTrackIds.length} songs
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.push('/downloads')}
+          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: Palette.episodesBg }]}>
+            <Ionicons name="cloud-done" size={20} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
+              Downloads
+            </Text>
+            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
+              {downloadedTracks.length} offline
+            </Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.push({ pathname: '/(tabs)/library', params: { filter: 'device' } })}
+          style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
+        >
+          <View style={[styles.quickIcon, { backgroundColor: '#2A4D3E' }]}>
+            <Ionicons name="phone-portrait" size={20} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
+              Device Music
+            </Text>
+            <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
+              {localTracks.length} local
+            </Text>
+          </View>
+        </Pressable>
+
+        {playlists[0] ? (
+          <Pressable
+            onPress={() => router.push(`/playlist/${encodeURIComponent(playlists[0].id)}`)}
+            style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
+          >
+            <View style={[styles.quickIcon, { backgroundColor: '#3B2667' }]}>
+              <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
+                {playlists[0].name}
+              </Text>
+              <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
+                {playlists[0].trackIds.length} songs
+              </Text>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => router.push('/(tabs)/library')}
+            style={[styles.quickTile, { backgroundColor: theme.surfaceElevated }]}
+          >
+            <View style={[styles.quickIcon, { backgroundColor: '#333333' }]}>
+              <Ionicons name="add" size={22} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.quickTitle, { color: theme.text }]} numberOfLines={1}>
+                Playlists
+              </Text>
+              <Text style={[styles.quickSub, { color: theme.textSecondary }]}>
+                Create or browse
+              </Text>
+            </View>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Offline Only View */}
+      {offlineOnly && (
+        <View style={styles.sectionBlock}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Available Offline
+          </Text>
+          {[...downloadedTracks, ...localTracks].length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
+              No downloaded or local device tracks yet. Disable Offline Only in Downloads/Settings
+              or import local audio files in Your Library.
+            </Text>
+          ) : (
+            [...downloadedTracks, ...localTracks].map((t) =>
+              renderTrackRow(t, [...downloadedTracks, ...localTracks], 'Available Offline')
+            )
+          )}
+        </View>
+      )}
+
+      {/* Live Featured Artists */}
+      {!offlineOnly && featuredArtists.length > 0 && (
+        <View style={styles.sectionBlock}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Artists for you</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalList}
+          >
+            {featuredArtists.map((artist) => (
+              <PlaylistCard
+                key={artist.id}
+                title={artist.name}
+                artworkUrl={artist.artworkUrl}
+                dominantColor={artist.color}
+                size={112}
+                circular
+                onPress={() =>
+                  router.push({
+                    pathname: '/artist/[id]',
+                    params: { id: artist.id, name: artist.name },
+                  })
+                }
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Live Collections / Albums */}
+      {!offlineOnly && featuredAlbums.length > 0 && (
+        <View style={styles.sectionBlock}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Popular collections</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalList}
+          >
+            {featuredAlbums.map((alb) => (
+              <PlaylistCard
+                key={alb.id}
+                title={alb.title}
+                subtitle={alb.artist}
+                artworkUrl={alb.artworkUrl}
+                dominantColor={alb.color}
+                size={146}
+                onPress={() =>
+                  router.push({
+                    pathname: '/album/[id]',
+                    params: { id: alb.id, title: alb.title, artist: alb.artist },
+                  })
+                }
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Live Audius Trending */}
+      {!offlineOnly && (
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+              Trending on Audius
+            </Text>
+            {isLoadingFeed ? (
+              <ActivityIndicator size="small" color={Palette.brandGreen} />
+            ) : (
+              <Text style={styles.liveTag}>LIVE</Text>
+            )}
+          </View>
+
+          {discoveryFeed.audiusTracks.length === 0 && !isLoadingFeed ? (
+            <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
+              Pull down to load trending Audius releases.
+            </Text>
+          ) : (
+            discoveryFeed.audiusTracks
+              .slice(0, 6)
+              .map((t) => renderTrackRow(t, discoveryFeed.audiusTracks, 'Trending on Audius'))
+          )}
+        </View>
+      )}
+
+      {/* Live Internet Archive & Jamendo Free Downloadable Tracks */}
+      {!offlineOnly &&
+        (discoveryFeed.archiveTracks.length > 0 || discoveryFeed.jamendoTracks.length > 0) && (
+          <View style={styles.sectionBlock}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+                Free &amp; Downloadable (CC)
+              </Text>
+              <Text style={[styles.liveTag, { backgroundColor: '#27856B', color: '#FFFFFF' }]}>
+                OFFLINE READY
+              </Text>
+            </View>
+            {[...discoveryFeed.jamendoTracks, ...discoveryFeed.archiveTracks]
+              .slice(0, 8)
+              .map((t) =>
+                renderTrackRow(
+                  t,
+                  [...discoveryFeed.jamendoTracks, ...discoveryFeed.archiveTracks],
+                  'Free Creative Commons'
+                )
+              )}
+          </View>
+        )}
+
+      {/* Device Music Preview */}
+      {localTracks.length > 0 && (
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 0 }]}>
+              On This Device
+            </Text>
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/(tabs)/library', params: { filter: 'device' } })
+              }
+            >
+              <Text style={[styles.seeAll, { color: Palette.brandGreen }]}>See all</Text>
+            </Pressable>
+          </View>
+          {localTracks.slice(0, 4).map((t) => renderTrackRow(t, localTracks, 'Device Music'))}
         </View>
       )}
     </ScrollView>
@@ -228,11 +432,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   headerTitle: {
     fontFamily: FontFamily.bold,
-    fontSize: 20,
+    fontSize: 21,
     letterSpacing: -0.3,
   },
   headerIcons: {
@@ -244,50 +448,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
-  reviewHeader: {
+  quickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    gap: 10,
+    marginTop: Spacing.sm,
+  },
+  quickTile: {
+    width: '48.5%',
+    height: 56,
+    borderRadius: Radii.md,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.md,
-    gap: 12,
+    overflow: 'hidden',
+    paddingRight: 10,
+    gap: 10,
   },
-  reviewBadge: {
-    width: 58,
-    height: 58,
-    borderRadius: 2,
+  quickIcon: {
+    width: 56,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  reviewTextCol: {
-    flex: 1,
+  quickTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 13,
   },
-  reviewTag: {
+  quickSub: {
     fontFamily: FontFamily.medium,
-    fontSize: 10,
-    letterSpacing: 0.8,
+    fontSize: 11,
   },
-  reviewTitle: {
-    fontFamily: FontFamily.semiBold,
-    fontSize: 24,
-    letterSpacing: -0.6,
-    marginTop: 2,
-  },
-  sectionTitle: {
-    fontFamily: FontFamily.semiBold,
-    fontSize: 23,
-    letterSpacing: -0.5,
-    paddingHorizontal: Spacing.lg,
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.md,
-  },
-  trendingSection: {
+  sectionBlock: {
     marginTop: Spacing.xl,
   },
-  trendingHeader: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingRight: Spacing.lg,
     marginBottom: Spacing.sm,
+  },
+  sectionTitle: {
+    fontFamily: FontFamily.bold,
+    fontSize: 20,
+    letterSpacing: -0.4,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   liveTag: {
     fontFamily: FontFamily.bold,
@@ -298,5 +506,15 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 10,
     overflow: 'hidden',
+  },
+  seeAll: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: 13,
+  },
+  emptyHint: {
+    fontFamily: FontFamily.regular,
+    fontSize: 13.5,
+    paddingHorizontal: Spacing.lg,
+    lineHeight: 20,
   },
 });

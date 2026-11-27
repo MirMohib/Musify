@@ -77,8 +77,7 @@ export async function resolvePlayableUri(
 }
 
 export function isTrackDownloadable(track: Track): boolean {
-  if (track.sourceId === 'local') return false;
-  if (track.sourceId === 'seeded') return track.isDownloadable && Boolean(track.streamUrl);
+  if (track.sourceId === 'local' || track.sourceId === 'seeded') return false;
   const provider = getProvider(track.sourceId);
   return provider ? provider.isDownloadable(track) : false;
 }
@@ -138,20 +137,35 @@ export async function searchAllSources(
   return { tracks: merged, errors };
 }
 
-export async function fetchRemoteTrending(): Promise<Track[]> {
-  try {
-    const [audiusTracks, jamendoTracks] = await Promise.all([
-      audiusSourceProvider.getTrending ? audiusSourceProvider.getTrending(8).catch(() => []) : [],
-      jamendoSourceProvider.isConfigured() && jamendoSourceProvider.getTrending
-        ? jamendoSourceProvider.getTrending(6).catch(() => [])
-        : [],
-    ]);
-    const combined = [...audiusTracks, ...jamendoTracks];
-    if (combined.length > 0) {
-      upsertTracks(combined).catch(() => {});
-    }
-    return combined;
-  } catch {
-    return [];
+export interface DiscoveryFeed {
+  audiusTracks: Track[];
+  jamendoTracks: Track[];
+  archiveTracks: Track[];
+  allTracks: Track[];
+}
+
+export async function fetchDiscoveryFeed(): Promise<DiscoveryFeed> {
+  const [audiusTracks, jamendoTracks, archiveTracks] = await Promise.all([
+    audiusSourceProvider.getTrending
+      ? audiusSourceProvider.getTrending(12).catch(() => [])
+      : Promise.resolve([]),
+    jamendoSourceProvider.isConfigured() && jamendoSourceProvider.getTrending
+      ? jamendoSourceProvider.getTrending(10).catch(() => [])
+      : Promise.resolve([]),
+    archiveSourceProvider.getTrending
+      ? archiveSourceProvider.getTrending(10).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const allTracks = [...audiusTracks, ...jamendoTracks, ...archiveTracks];
+  if (allTracks.length > 0) {
+    upsertTracks(allTracks).catch(() => {});
   }
+
+  return {
+    audiusTracks,
+    jamendoTracks,
+    archiveTracks,
+    allTracks,
+  };
 }

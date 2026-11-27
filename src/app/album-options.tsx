@@ -1,11 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { SEEDED_ALBUMS } from '@/data/seedCatalog';
 import { FontFamily, Spacing } from '@/constants/theme';
 import { isTrackDownloadable } from '@/services/sources/sourceRegistry';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -14,18 +13,34 @@ import { usePlayerStore } from '@/store/usePlayerStore';
 import { useAppTheme } from '@/store/useSettingsStore';
 
 export default function AlbumOptionsScreen() {
-  const { albumId } = useLocalSearchParams<{ albumId: string }>();
+  const { albumId, title: paramTitle, artist: paramArtist } = useLocalSearchParams<{
+    albumId: string;
+    title?: string;
+    artist?: string;
+  }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
 
-  const album =
-    SEEDED_ALBUMS.find((a) => a.id === albumId) ?? SEEDED_ALBUMS[0];
-
+  const tracksById = useLibraryStore((s) => s.tracksById);
   const likeAllTracks = useLibraryStore((s) => s.likeAllTracks);
   const addToQueue = usePlayerStore((s) => s.addToQueue);
   const playTrack = usePlayerStore((s) => s.playTrack);
   const downloadTrack = useDownloadStore((s) => s.downloadTrack);
+
+  const tracks = useMemo(() => {
+    const all = Object.values(tracksById);
+    return all.filter(
+      (t) =>
+        t.albumId === albumId ||
+        (paramTitle && t.album?.toLowerCase() === paramTitle.toLowerCase()) ||
+        t.album === albumId
+    );
+  }, [tracksById, albumId, paramTitle]);
+
+  const albumTitle = tracks[0]?.album || paramTitle || 'Collection';
+  const artistName = tracks[0]?.artist || paramArtist || 'Artist';
+  const artistId = tracks[0]?.artistId || artistName;
 
   const actions: {
     icon: keyof typeof Ionicons.glyphMap;
@@ -36,44 +51,53 @@ export default function AlbumOptionsScreen() {
       icon: 'heart-outline',
       label: 'Like all songs',
       onPress: async () => {
-        await likeAllTracks(album.tracks);
+        await likeAllTracks(tracks);
         router.back();
       },
     },
-    {
-      icon: 'arrow-down-circle-outline',
-      label: 'Download album',
-      onPress: () => {
-        for (const t of album.tracks) {
-          if (isTrackDownloadable(t)) {
-            downloadTrack(t).catch(() => {});
-          }
-        }
-        router.back();
-      },
-    },
+    ...(tracks.some((t) => isTrackDownloadable(t))
+      ? [
+          {
+            icon: 'arrow-down-circle-outline' as keyof typeof Ionicons.glyphMap,
+            label: 'Download album',
+            onPress: () => {
+              for (const t of tracks) {
+                if (isTrackDownloadable(t)) {
+                  downloadTrack(t).catch(() => {});
+                }
+              }
+              router.back();
+            },
+          },
+        ]
+      : []),
     {
       icon: 'person-outline',
       label: 'View artist',
       onPress: () =>
-        router.replace(
-          `/artist/${encodeURIComponent(album.artistId ?? album.artist)}`
-        ),
-    },
-    {
-      icon: 'share-outline',
-      label: 'Share',
-      onPress: () =>
         router.replace({
-          pathname: '/share',
-          params: { trackId: album.tracks[0]?.id ?? '' },
+          pathname: '/artist/[id]',
+          params: { id: artistId, name: artistName },
         }),
     },
+    ...(tracks[0]
+      ? [
+          {
+            icon: 'share-outline' as keyof typeof Ionicons.glyphMap,
+            label: 'Share',
+            onPress: () =>
+              router.replace({
+                pathname: '/share',
+                params: { trackId: tracks[0].id },
+              }),
+          },
+        ]
+      : []),
     {
       icon: 'list-outline',
       label: 'Add to queue',
       onPress: () => {
-        for (const t of album.tracks) {
+        for (const t of tracks) {
           addToQueue(t);
         }
         router.back();
@@ -83,8 +107,8 @@ export default function AlbumOptionsScreen() {
       icon: 'radio-outline',
       label: 'Go to radio',
       onPress: async () => {
-        if (album.tracks[0]) {
-          await playTrack(album.tracks[0], album.tracks, `${album.title} Radio`);
+        if (tracks[0]) {
+          await playTrack(tracks[0], tracks, `${albumTitle} Radio`);
         }
         router.replace('/queue');
       },
@@ -103,14 +127,10 @@ export default function AlbumOptionsScreen() {
         ]}
       >
         <View style={styles.hero}>
-          <TrackArtwork
-            artworkUrl={album.artworkUrl}
-            artworkAsset={album.artworkAsset}
-            size={164}
-          />
-          <Text style={[styles.title, { color: theme.text }]}>{album.title}</Text>
+          <TrackArtwork artworkUrl={tracks[0]?.artworkUrl} size={164} />
+          <Text style={[styles.title, { color: theme.text }]}>{albumTitle}</Text>
           <Text style={[styles.artist, { color: theme.textSecondary }]}>
-            {album.artist}
+            {artistName}
           </Text>
         </View>
 

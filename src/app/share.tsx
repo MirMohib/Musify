@@ -13,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { SEEDED_TRACKS } from '@/data/seedCatalog';
 import { FontFamily, Palette, Shadows, Spacing } from '@/constants/theme';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
@@ -25,8 +24,24 @@ export default function ShareScreen() {
 
   const tracksById = useLibraryStore((s) => s.tracksById);
   const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const track =
-    (trackId ? tracksById[trackId] : undefined) ?? currentTrack ?? SEEDED_TRACKS[0];
+  const track = (trackId ? tracksById[trackId] : undefined) ?? currentTrack;
+
+  if (!track) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top + 14, paddingHorizontal: Spacing.xl }]}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={10}>
+            <Ionicons name="close" size={26} color={Palette.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Share</Text>
+          <View style={{ width: 26 }} />
+        </View>
+        <Text style={[styles.trackArtist, { textAlign: 'center', marginTop: 40 }]}>
+          Select a track to share.
+        </Text>
+      </View>
+    );
+  }
 
   const shareMessage = `Listen to "${track.title}" by ${track.artist} on Musify! ${
     track.streamUrl ?? ''

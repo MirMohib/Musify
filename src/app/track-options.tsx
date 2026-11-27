@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddToPlaylistModal } from '@/components/PlaylistModal';
 import { TrackArtwork } from '@/components/TrackArtwork';
-import { SEEDED_TRACKS } from '@/data/seedCatalog';
 import { FontFamily, Palette, Spacing } from '@/constants/theme';
 import { isTrackDownloadable } from '@/services/sources/sourceRegistry';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -48,8 +47,19 @@ export default function TrackOptionsScreen() {
 
   const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
 
-  const track =
-    (trackId ? tracksById[trackId] : undefined) ?? currentTrack ?? SEEDED_TRACKS[0];
+  const track = (trackId ? tracksById[trackId] : undefined) ?? currentTrack;
+
+  if (!track) {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.background, paddingTop: insets.top + 24 }]}>
+        <Text style={[styles.title, { color: theme.text }]}>Track not found</Text>
+        <Pressable onPress={() => router.back()} style={styles.closeBtn}>
+          <Text style={[styles.closeText, { color: theme.text }]}>Close</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   const isLiked = likedTrackIds.includes(track.id);
   const dlRecord = downloads[track.id];
   const isDownloaded = dlRecord?.status === 'completed';
@@ -141,18 +151,27 @@ export default function TrackOptionsScreen() {
       icon: 'disc-outline',
       label: 'View album',
       onPress: () => {
-        router.replace(
-          `/album/${encodeURIComponent(track.albumId ?? 'seeded:album-1')}`
-        );
+        router.replace({
+          pathname: '/album/[id]',
+          params: {
+            id: track.albumId || track.album || track.id,
+            title: track.album || track.title,
+            artist: track.artist,
+          },
+        });
       },
     },
     {
       icon: 'person-outline',
       label: 'View artist',
       onPress: () => {
-        router.replace(
-          `/artist/${encodeURIComponent(track.artistId ?? track.artist)}`
-        );
+        router.replace({
+          pathname: '/artist/[id]',
+          params: {
+            id: track.artistId || track.artist,
+            name: track.artist,
+          },
+        });
       },
     },
     {

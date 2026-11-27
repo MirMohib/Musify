@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 
-import { SEEDED_PLAYLISTS, SEEDED_TRACKS } from '@/data/seedCatalog';
 import {
   importDeviceAudioFiles,
-  scanAndroidDeviceAudio,
+  scanDeviceAudio,
 } from '@/services/sources/localSource';
-import { fetchRemoteTrending } from '@/services/sources/sourceRegistry';
+import {
+  fetchDiscoveryFeed,
+  type DiscoveryFeed,
+} from '@/services/sources/sourceRegistry';
 import {
   addRecentSearchDb,
   clearRecentSearchesDb,
@@ -15,6 +17,7 @@ import {
   getPlaylists,
   getRecentlyPlayedIds,
   getRecentSearchesDb,
+  purgeLegacySeededData,
   recordRecentlyPlayedDb,
   removePlaylist,
   savePlaylist,
@@ -24,16 +27,20 @@ import {
   upsertTracks,
   type RecentSearchItem,
 } from '@/services/storage/database';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Playlist, Track } from '@/types/music';
 
-const SEEDED_KEY = 'musify_seeded_v1';
+const CLEAN_V2_KEY = 'musify_clean_v2';
 
 interface LibraryState {
   tracksById: Record<string, Track>;
   playlists: Playlist[];
   likedTrackIds: string[];
   recentlyPlayedIds: string[];
-  remoteTrending: Track[];
+  discoveryFeed: DiscoveryFeed;
+  isLoadingFeed: boolean;
+  isScanningDevice: boolean;
+  deviceScanMessage: string | null;
   recentSearches: RecentSearchItem[];
   hiddenTrackIds: string[];
   isHydrated: boolean;
@@ -52,35 +59,38 @@ interface LibraryState {
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => Promise<void>;
 
   importLocalMusic: () => Promise<{ imported: Track[]; canceled: boolean }>;
-  scanLocalMusic: () => Promise<{ count: number; message?: string }>;
+  rescanDeviceMusic: (promptPermission?: boolean) => Promise<{ count: number; message?: string }>;
 
   addRecentSearch: (item: Omit<RecentSearchItem, 'searchedAt'>) => Promise<void>;
   clearRecentSearches: () => Promise<void>;
-  refreshTrending: () => Promise<void>;
+  refreshDiscovery: () => Promise<void>;
 }
+
+const EMPTY_FEED: DiscoveryFeed = {
+  audiusTracks: [],
+  jamendoTracks: [],
+  archiveTracks: [],
+  allTracks: [],
+};
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   tracksById: {},
   playlists: [],
   likedTrackIds: [],
   recentlyPlayedIds: [],
-  remoteTrending: [],
+  discoveryFeed: EMPTY_FEED,
+  isLoadingFeed: false,
+  isScanningDevice: false,
+  deviceScanMessage: null,
   recentSearches: [],
   hiddenTrackIds: [],
   isHydrated: false,
 
   hydrate: async () => {
-    const alreadySeeded = await getKvJson<boolean>(SEEDED_KEY);
-    if (!alreadySeeded) {
-      await upsertTracks(SEEDED_TRACKS);
-      for (const pl of SEEDED_PLAYLISTS) {
-        await savePlaylist(pl);
-      }
-      await setTrackLikedDb(SEEDED_TRACKS[0].id, true);
-      await setTrackLikedDb(SEEDED_TRACKS[1].id, true);
-      await recordRecentlyPlayedDb(SEEDED_TRACKS[0].id);
-      await recordRecentlyPlayedDb(SEEDED_TRACKS[2].id);
-      await setKvJson(SEEDED_KEY, true);
+    const cleaned = await getKvJson<boolean>(CLEAN_V2_KEY);
+    if (!cleaned) {
+      await purgeLegacySeededData();
+      await setKvJson(CLEAN_V2_KEY, true);
     }
 
     const [storedTracks, playlists, likedTrackIds, recentlyPlayedIds, recentSearches] =
@@ -93,15 +103,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       ]);
 
     const tracksById: Record<string, Track> = {};
-    for (const t of SEEDED_TRACKS) {
-      tracksById[t.id] = t;
-    }
     for (const t of storedTracks) {
-      tracksById[t.id] = {
-        ...tracksById[t.id],
-        ...t,
-        artworkAsset: t.artworkAsset ?? tracksById[t.id]?.artworkAsset,
-      };
+      tracksById[t.id] = t;
     }
 
     set({
@@ -113,15 +116,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       isHydrated: true,
     });
 
-    // Non-blocking background fetch for Audius / Jamendo trending
-    fetchRemoteTrending()
-      .then((trending) => {
-        if (trending.length > 0) {
-          get().registerTracks(trending);
-          set({ remoteTrending: trending });
-        }
-      })
+    // Automatically scan local device audio files on startup
+    get()
+      .rescanDeviceMusic(true)
       .catch(() => {});
+
+    // Fetch live remote recommendations unless offlineOnly is active
+    const offlineOnly = useSettingsStore.getState().settings.offlineOnly;
+    if (!offlineOnly) {
+      get()
+        .refreshDiscovery()
+        .catch(() => {});
+    }
   },
 
   registerTracks: (tracks) => {
@@ -139,19 +145,27 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   toggleLike: async (track) => {
-    await upsertTrack(track);
-    const currentLiked = get().likedTrackIds;
-    const isLiked = currentLiked.includes(track.id);
+    const prevLiked = get().likedTrackIds;
+    const isLiked = prevLiked.includes(track.id);
     const nextLiked = isLiked
-      ? currentLiked.filter((id) => id !== track.id)
-      : [track.id, ...currentLiked];
+      ? prevLiked.filter((id) => id !== track.id)
+      : [track.id, ...prevLiked];
 
+    // Optimistic UI update
     set((state) => ({
       tracksById: { ...state.tracksById, [track.id]: track },
       likedTrackIds: nextLiked,
     }));
-    await setTrackLikedDb(track.id, !isLiked);
-    return !isLiked;
+
+    try {
+      await upsertTrack(track);
+      await setTrackLikedDb(track.id, !isLiked);
+      return !isLiked;
+    } catch (err) {
+      // Roll back on persistence failure
+      set({ likedTrackIds: prevLiked });
+      throw err;
+    }
   },
 
   likeAllTracks: async (tracks) => {
@@ -227,35 +241,53 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   addTrackToPlaylist: async (playlistId, track) => {
-    const target = get().playlists.find((p) => p.id === playlistId);
-    if (!target) return;
-    await upsertTrack(track);
-    if (target.trackIds.includes(track.id)) return;
+    const prevPlaylists = get().playlists;
+    const target = prevPlaylists.find((p) => p.id === playlistId);
+    if (!target || target.trackIds.includes(track.id)) return;
 
     const updated: Playlist = {
       ...target,
       trackIds: [...target.trackIds, track.id],
       updatedAt: Date.now(),
     };
-    await savePlaylist(updated);
+
+    // Optimistic UI update
     set((state) => ({
       tracksById: { ...state.tracksById, [track.id]: track },
       playlists: state.playlists.map((p) => (p.id === playlistId ? updated : p)),
     }));
+
+    try {
+      await upsertTrack(track);
+      await savePlaylist(updated);
+    } catch (err) {
+      set({ playlists: prevPlaylists });
+      throw err;
+    }
   },
 
   removeTrackFromPlaylist: async (playlistId, trackId) => {
-    const target = get().playlists.find((p) => p.id === playlistId);
+    const prevPlaylists = get().playlists;
+    const target = prevPlaylists.find((p) => p.id === playlistId);
     if (!target) return;
+
     const updated: Playlist = {
       ...target,
       trackIds: target.trackIds.filter((id) => id !== trackId),
       updatedAt: Date.now(),
     };
-    await savePlaylist(updated);
+
+    // Optimistic UI update
     set((state) => ({
       playlists: state.playlists.map((p) => (p.id === playlistId ? updated : p)),
     }));
+
+    try {
+      await savePlaylist(updated);
+    } catch (err) {
+      set({ playlists: prevPlaylists });
+      throw err;
+    }
   },
 
   importLocalMusic: async () => {
@@ -266,12 +298,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     return res;
   },
 
-  scanLocalMusic: async () => {
-    const res = await scanAndroidDeviceAudio();
-    if (res.tracks.length > 0) {
-      get().registerTracks(res.tracks);
+  rescanDeviceMusic: async (promptPermission = true) => {
+    set({ isScanningDevice: true });
+    try {
+      const res = await scanDeviceAudio(promptPermission);
+      if (res.tracks.length > 0) {
+        get().registerTracks(res.tracks);
+      }
+      set({ deviceScanMessage: res.message ?? null });
+      return { count: res.tracks.length, message: res.message };
+    } finally {
+      set({ isScanningDevice: false });
     }
-    return { count: res.tracks.length, message: res.message };
   },
 
   addRecentSearch: async (item) => {
@@ -290,11 +328,16 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ recentSearches: [] });
   },
 
-  refreshTrending: async () => {
-    const trending = await fetchRemoteTrending();
-    if (trending.length > 0) {
-      get().registerTracks(trending);
-      set({ remoteTrending: trending });
+  refreshDiscovery: async () => {
+    set({ isLoadingFeed: true });
+    try {
+      const feed = await fetchDiscoveryFeed();
+      if (feed.allTracks.length > 0) {
+        get().registerTracks(feed.allTracks);
+      }
+      set({ discoveryFeed: feed });
+    } finally {
+      set({ isLoadingFeed: false });
     }
   },
 }));

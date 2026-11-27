@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +12,7 @@ import {
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FontFamily, Palette, Radii, Spacing } from '@/constants/theme';
 import { isTrackDownloadable } from '@/services/sources/sourceRegistry';
+import { useDownloadStore } from '@/store/useDownloadStore';
 import { useAppTheme } from '@/store/useSettingsStore';
 import type { DownloadRecord, Track } from '@/types/music';
 import { formatDuration, getSourceLabel } from '@/utils/format';
@@ -33,7 +35,7 @@ export function SongTile({
   isActive = false,
   showArtwork = true,
   showSourceBadge = false,
-  showDownloadAction = false,
+  showDownloadAction = true,
   downloadRecord,
   indexNumber,
   onPress,
@@ -41,10 +43,37 @@ export function SongTile({
   onDownloadPress,
 }: SongTileProps) {
   const theme = useAppTheme();
-  const isDownloaded = downloadRecord?.status === 'completed';
-  const isDownloading = downloadRecord?.status === 'downloading';
-  const isPaused = downloadRecord?.status === 'paused';
+  const storeDownloadRecord = useDownloadStore((s) => s.downloads[track.id]);
+  const downloadTrack = useDownloadStore((s) => s.downloadTrack);
+  const pauseDownload = useDownloadStore((s) => s.pauseDownload);
+  const resumeDownload = useDownloadStore((s) => s.resumeDownload);
+
+  const effectiveDownload = downloadRecord ?? storeDownloadRecord;
+  const isDownloaded = effectiveDownload?.status === 'completed';
+  const isDownloading = effectiveDownload?.status === 'downloading';
+  const isPaused = effectiveDownload?.status === 'paused';
   const canDownload = isTrackDownloadable(track);
+
+  const handleDownloadAction = async () => {
+    if (onDownloadPress) {
+      onDownloadPress();
+      return;
+    }
+    try {
+      if (isDownloading) {
+        await pauseDownload(track.id);
+      } else if (isPaused) {
+        await resumeDownload(track);
+      } else if (!isDownloaded) {
+        await downloadTrack(track);
+      }
+    } catch (err) {
+      Alert.alert(
+        'Download Failed',
+        err instanceof Error ? err.message : 'Unable to download this track.'
+      );
+    }
+  };
 
   return (
     <Pressable
@@ -109,31 +138,59 @@ export function SongTile({
             {track.durationMs > 0 && !showSourceBadge ? ` · ${formatDuration(track.durationMs)}` : ''}
           </Text>
         </View>
+
+        {isDownloading && (
+          <View style={styles.inlineProgressTrack}>
+            <View
+              style={[
+                styles.inlineProgressFill,
+                { width: `${Math.round((effectiveDownload?.progress ?? 0) * 100)}%` },
+              ]}
+            />
+          </View>
+        )}
       </View>
 
       <View style={styles.actions}>
-        {showDownloadAction && canDownload && onDownloadPress && (
+        {showDownloadAction && canDownload && (
           <Pressable
-            onPress={onDownloadPress}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleDownloadAction();
+            }}
             hitSlop={10}
             style={styles.actionBtn}
-            accessibilityLabel={isDownloaded ? 'Downloaded' : 'Download track'}
+            accessibilityLabel={
+              isDownloaded
+                ? 'Downloaded for offline playback'
+                : isDownloading
+                  ? 'Downloading, tap to pause'
+                  : 'Download track'
+            }
           >
             {isDownloading ? (
-              <ActivityIndicator size="small" color={Palette.brandGreen} />
+              <View style={styles.dlProgressWrap}>
+                <ActivityIndicator size="small" color={Palette.brandGreen} />
+                <Text style={styles.dlPct}>
+                  {Math.round((effectiveDownload?.progress ?? 0) * 100)}%
+                </Text>
+              </View>
             ) : isDownloaded ? (
-              <Ionicons name="checkmark-circle" size={20} color={Palette.brandGreen} />
+              <Ionicons name="checkmark-circle" size={21} color={Palette.brandGreen} />
             ) : isPaused ? (
-              <Ionicons name="pause-circle-outline" size={20} color={Palette.warning} />
+              <Ionicons name="pause-circle-outline" size={21} color={Palette.warning} />
             ) : (
-              <Ionicons name="arrow-down-circle-outline" size={20} color={theme.textSecondary} />
+              <Ionicons name="arrow-down-circle-outline" size={21} color={theme.textSecondary} />
             )}
           </Pressable>
         )}
 
         {onMorePress && (
           <Pressable
-            onPress={onMorePress}
+            onPress={(e) => {
+              e.stopPropagation();
+              onMorePress();
+            }}
             hitSlop={10}
             style={styles.actionBtn}
             accessibilityLabel={`More options for ${track.title}`}
@@ -205,6 +262,17 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     flexShrink: 1,
   },
+  inlineProgressTrack: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginTop: 2,
+    overflow: 'hidden',
+  },
+  inlineProgressFill: {
+    height: '100%',
+    backgroundColor: Palette.brandGreen,
+  },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -213,5 +281,15 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     padding: 4,
+  },
+  dlProgressWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dlPct: {
+    fontFamily: FontFamily.bold,
+    fontSize: 10.5,
+    color: Palette.brandGreen,
   },
 });

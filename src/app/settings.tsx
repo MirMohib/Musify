@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DockedMiniPlayerFooter } from '@/components/DockedMiniPlayerFooter';
 import { TrackArtwork } from '@/components/TrackArtwork';
 import { FigmaAssets } from '@/constants/figmaAssets';
 import { FontFamily, Palette, Spacing } from '@/constants/theme';
@@ -94,7 +95,7 @@ export default function SettingsScreen() {
     {
       label: 'Storage & Downloads',
       value: `${formatBytes(totalBytesUsed)} used · Limit ${settings.maxDownloadStorageMb} MB`,
-      onPress: () => router.push('/(tabs)/downloads'),
+      onPress: () => router.push('/downloads'),
     },
     {
       label: 'Download Location',
@@ -152,7 +153,6 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      {/* Top Bar matching Figma Settings 21:1533 */}
       <View
         style={[
           styles.headerBar,
@@ -170,11 +170,7 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {/* Profile Header matching Figma 21:1529..1531 */}
-        <Pressable
-          onPress={() => router.push('/(tabs)/profile')}
-          style={styles.profileRow}
-        >
+        <Pressable onPress={() => router.push('/profile')} style={styles.profileRow}>
           <TrackArtwork artworkAsset={FigmaAssets.editors1} size={58} circular />
           <View style={{ flex: 1 }}>
             <Text style={[styles.profileName, { color: theme.text }]}>{profile.name}</Text>
@@ -213,6 +209,8 @@ export default function SettingsScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      <DockedMiniPlayerFooter />
     </View>
   );
 }
@@ -231,7 +229,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
   },
   list: {
-    paddingBottom: 32,
+    paddingBottom: 24,
   },
   profileRow: {
     flexDirection: 'row',

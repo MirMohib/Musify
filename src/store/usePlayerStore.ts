@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 
-import { SEEDED_TRACKS } from '@/data/seedCatalog';
 import { audioService } from '@/services/audio/AudioService';
 import { resolvePlayableUri } from '@/services/sources/sourceRegistry';
 import { useDownloadStore } from '@/store/useDownloadStore';
@@ -45,14 +44,14 @@ let sleepTimerHandle: ReturnType<typeof setTimeout> | null = null;
 let audioUnsubscribe: (() => void) | null = null;
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
-  currentTrack: SEEDED_TRACKS[0],
-  queue: SEEDED_TRACKS,
+  currentTrack: null,
+  queue: [],
   currentIndex: 0,
-  contextTitle: '1 (Remastered)',
+  contextTitle: '',
   isPlaying: false,
   isBuffering: false,
   positionMs: 0,
-  durationMs: SEEDED_TRACKS[0].durationMs,
+  durationMs: 0,
   shuffle: false,
   repeatMode: 'off',
   activeDeviceName: 'This Phone',
