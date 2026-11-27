@@ -14,84 +14,106 @@ const INJECTED_INTERCEPTOR_JS = `
   window.__musifyBridgeInstalled = true;
 
   var sent = false;
-  var candidates = [];
-  var flushTimer = null;
+  var trying = false;
 
-  function cleanStreamUrl(rawUrl) {
+  function isAudioPlaybackUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (url.indexOf('googlevideo.com/videoplayback') === -1) return false;
+    return (
+      url.indexOf('mime=audio') !== -1 ||
+      url.indexOf('mime%3Daudio') !== -1 ||
+      /[?&]itag=(139|140|141|249|250|251)(&|$)/.test(url)
+    );
+  }
+
+  function postStreamUrl(finalUrl) {
+    if (sent || !finalUrl) return;
+    sent = true;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'STREAM_URL', url: finalUrl }));
+  }
+
+  function verifyAndSend(rawUrl) {
+    if (sent || trying || !isAudioPlaybackUrl(rawUrl)) return;
+    trying = true;
+
+    // Build a full-file candidate (without range/rn/rbuf) AND keep exact rawUrl as backup
+    var fullCandidate = rawUrl;
     try {
       var u = new URL(rawUrl);
       u.searchParams.delete('range');
       u.searchParams.delete('rn');
       u.searchParams.delete('rbuf');
-      return u.toString();
-    } catch (e) {
-      return rawUrl;
-    }
+      fullCandidate = u.toString();
+    } catch (e) {}
+
+    // Test inside WebView (with real YouTube cookies & Referer) if fullCandidate returns 200/206
+    var origFetch = window.__origFetch || window.fetch;
+    origFetch(fullCandidate, { headers: { Range: 'bytes=0-1023' } })
+      .then(function(res) {
+        if (res && (res.status === 200 || res.status === 206)) {
+          postStreamUrl(fullCandidate);
+        } else {
+          // If YouTube requires exact signed range, fetch full audio inside WebView and pass data URL
+          return fetchFullAudioInsideWebView(rawUrl, origFetch);
+        }
+      })
+      .catch(function() {
+        fetchFullAudioInsideWebView(rawUrl, origFetch);
+      });
   }
 
-  function scoreUrl(url) {
-    if (!url || typeof url !== 'string') return -1;
-    if (url.indexOf('googlevideo.com/videoplayback') === -1 && url.indexOf('.m3u8') === -1) return -1;
-    // Skip tiny storyboard/thumbnail or init-only requests if better exists
-    if (url.indexOf('mime=audio') !== -1 || url.indexOf('mime%3Daudio') !== -1) return 100;
-    if (/[?&]itag=(140|141|139|251|250|249)(&|$)/.test(url)) return 95;
-    if (url.indexOf('.m3u8') !== -1) return 80;
-    if (/[?&]itag=(18|22)(&|$)/.test(url)) return 70;
-    return 50;
+  function fetchFullAudioInsideWebView(rawUrl, origFetch) {
+    // Try fetching with large byte range on the exact signed URL
+    var rangedUrl = rawUrl;
+    try {
+      var u = new URL(rawUrl);
+      if (u.searchParams.has('range')) {
+        u.searchParams.set('range', '0-15000000');
+      }
+      rangedUrl = u.toString();
+    } catch (e) {}
+
+    origFetch(rangedUrl)
+      .then(function(res) {
+        if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status));
+        return res.blob();
+      })
+      .then(function(blob) {
+        if (!blob || blob.size < 2048) throw new Error('Empty blob');
+        var reader = new FileReader();
+        reader.onloadend = function() {
+          if (typeof reader.result === 'string') {
+            postStreamUrl(reader.result);
+          }
+        };
+        reader.readAsDataURL(blob);
+      })
+      .catch(function() {
+        trying = false;
+      });
   }
 
-  function flushBestCandidate() {
-    if (sent || candidates.length === 0) return;
-    candidates.sort(function(a, b) { return b.score - a.score; });
-    var best = candidates[0];
-    if (best && best.url) {
-      sent = true;
-      window.ReactNativeWebView.postMessage(
-        JSON.stringify({ type: 'STREAM_URL', url: cleanStreamUrl(best.url) })
-      );
-    }
-  }
-
-  function inspectUrl(url) {
-    if (sent || !url || typeof url !== 'string') return;
-    var s = scoreUrl(url);
-    if (s < 0) return;
-
-    candidates.push({ url: url, score: s });
-
-    // If we found an explicit audio-only stream, send immediately!
-    if (s >= 95) {
-      flushBestCandidate();
-      return;
-    }
-
-    // Otherwise wait 800ms to see if an audio-only track arrives right after video/manifest, then send best
-    if (!flushTimer) {
-      flushTimer = setTimeout(flushBestCandidate, 800);
-    }
-  }
-
-  // 1. Intercept Response.prototype.arrayBuffer (MSE chunks)
+  // 1. Intercept Response.prototype.arrayBuffer
   if (window.Response && Response.prototype.arrayBuffer) {
     var origArrayBuffer = Response.prototype.arrayBuffer;
     Response.prototype.arrayBuffer = function() {
       try {
-        if (this && this.url) inspectUrl(this.url);
+        if (this && this.url) verifyAndSend(this.url);
       } catch (e) {}
       return origArrayBuffer.apply(this, arguments);
     };
   }
 
   // 2. Intercept fetch()
-  var origFetch = window.fetch;
+  window.__origFetch = window.fetch;
   window.fetch = function(input, init) {
     try {
       var reqUrl = typeof input === 'string' ? input : (input && input.url ? String(input.url) : '');
-      inspectUrl(reqUrl);
+      verifyAndSend(reqUrl);
     } catch (e) {}
-    return origFetch.apply(this, arguments).then(function(res) {
+    return window.__origFetch.apply(this, arguments).then(function(res) {
       try {
-        if (res && res.url) inspectUrl(res.url);
+        if (res && res.url) verifyAndSend(res.url);
       } catch (e) {}
       return res;
     });
@@ -101,18 +123,18 @@ const INJECTED_INTERCEPTOR_JS = `
   var origOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, reqUrl) {
     try {
-      inspectUrl(String(reqUrl || ''));
+      verifyAndSend(String(reqUrl || ''));
     } catch (e) {}
     return origOpen.apply(this, arguments);
   };
 
-  // 4. PerformanceObserver (buffered)
+  // 4. PerformanceObserver
   try {
     if (window.PerformanceObserver) {
       var obs = new PerformanceObserver(function(list) {
         var entries = list.getEntries();
         for (var i = 0; i < entries.length; i++) {
-          inspectUrl(entries[i].name);
+          verifyAndSend(entries[i].name);
         }
       });
       obs.observe({ type: 'resource', buffered: true });
@@ -130,7 +152,7 @@ const INJECTED_INTERCEPTOR_JS = `
       }
       var entries = performance.getEntriesByType('resource');
       for (var i = entries.length - 1; i >= 0; i--) {
-        inspectUrl(entries[i].name);
+        verifyAndSend(entries[i].name);
       }
     } catch (e) {}
   }, 400);

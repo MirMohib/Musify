@@ -81,11 +81,27 @@ export function inferAudioExtensionFromUrlOrMime(url: string, contentType?: stri
   return '.mp3';
 }
 
+function getStreamRequestHeaders(url: string): Record<string, string> | undefined {
+  if (url.includes('googlevideo.com')) {
+    return {
+      Referer: 'https://m.youtube.com/',
+      Origin: 'https://m.youtube.com',
+      'User-Agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+    };
+  }
+  return undefined;
+}
+
 async function detectAudioExtension(url: string): Promise<string> {
   const fromUrl = inferAudioExtensionFromUrlOrMime(url);
   try {
-    const pathname = new URL(url).pathname.toLowerCase();
-    if (KNOWN_AUDIO_EXTS.some((ext) => pathname.endsWith(ext))) {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.toLowerCase();
+    if (
+      KNOWN_AUDIO_EXTS.some((ext) => pathname.endsWith(ext)) ||
+      parsed.searchParams.has('mime')
+    ) {
       return fromUrl;
     }
   } catch {
@@ -95,13 +111,17 @@ async function detectAudioExtension(url: string): Promise<string> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    const res = await fetch(url, {
+      method: 'HEAD',
+      headers: getStreamRequestHeaders(url),
+      signal: controller.signal,
+    });
     clearTimeout(timer);
     if (res.ok) {
       return inferAudioExtensionFromUrlOrMime(url, res.headers.get('content-type'));
     }
   } catch {
-    // Fallback cleanly to default .mp3 if HEAD is blocked or times out
+    // Fallback cleanly to default extension if HEAD is blocked or times out
   }
 
   return fromUrl;
@@ -231,7 +251,9 @@ export async function startTrackDownload(
   onUpdate(record);
 
   let lastPersistedProgress = 0;
+  const reqHeaders = getStreamRequestHeaders(downloadUrl);
   const task = new DownloadTask(downloadUrl, destFile, {
+    ...(reqHeaders ? { headers: reqHeaders } : {}),
     onProgress: ({ bytesWritten, totalBytes }) => {
       const safeWritten = toSafeNumber(bytesWritten);
       const safeTotal = toSafeNumber(totalBytes);
@@ -258,6 +280,15 @@ export async function startTrackDownload(
     const completedFile = await task.downloadAsync();
     if (completedFile) {
       const finalBytes = toSafeNumber(completedFile.size) || record.bytesWritten;
+      if (finalBytes <= 1024) {
+        try {
+          if (completedFile.exists) completedFile.delete();
+        } catch {
+          // ignore
+        }
+        throw new Error('Downloaded file was empty (stream blocked by upstream server).');
+      }
+
       record = {
         ...record,
         status: 'completed',
