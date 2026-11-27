@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { YouTubeStreamBridge } from '@/components/YouTubeStreamBridge';
 import { useDownloadStore } from '@/store/useDownloadStore';
 import { useLibraryStore } from '@/store/useLibraryStore';
 import { usePlayerStore } from '@/store/usePlayerStore';
@@ -156,6 +157,7 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+      <YouTubeStreamBridge />
     </SafeAreaProvider>
   );
 }
