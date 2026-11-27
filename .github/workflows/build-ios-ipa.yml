@@ -30,13 +30,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Switch ExpoModulesJSI swiftLanguageModes from .v6 to .v5
-        run: |
-          sed -i '' 's/swiftLanguageModes: \[\.v6\]/swiftLanguageModes: [.v5]/g' node_modules/expo-modules-jsi/apple/Package.swift
-          grep -n "swiftLanguageModes" node_modules/expo-modules-jsi/apple/Package.swift
-
       - name: Expo Prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
+
+      - name: Patch Podfile to force Swift 5 language mode on Expo JSI pods
+        working-directory: ios
+        run: |
+          # Append a post_install hook that sets SWIFT_VERSION=5.0 and disables
+          # strict concurrency for all ExpoModulesJSI-related targets.
+          # This prevents Swift 6 Sendable/actor-isolation errors from Xcode 26.
+          cat >> Podfile <<'PATCH'
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              if target.name.include?('ExpoModulesJSI') ||
+                 target.name.include?('expo-modules-jsi') ||
+                 target.name.include?('ExpoModulesCore')
+                target.build_configurations.each do |config|
+                  config.build_settings['SWIFT_VERSION'] = '5.0'
+                  config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+                  config.build_settings['OTHER_SWIFT_FLAGS'] ||= '$(inherited)'
+                  config.build_settings['OTHER_SWIFT_FLAGS'] += ' -swift-version 5'
+                end
+              end
+            end
+          end
+          PATCH
+          echo "--- Podfile tail ---"
+          tail -20 Podfile
 
       - name: Install CocoaPods
         working-directory: ios
