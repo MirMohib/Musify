@@ -32,7 +32,8 @@ jobs:
           set -o pipefail
           WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
           SCHEME="${WORKSPACE%.xcworkspace}"
-          xcodebuild \
+          export NODE_BINARY=$(which node)
+          if ! xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
@@ -42,8 +43,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            | tee xcodebuild.log || (echo "=== XCODEBUILD ERRORS ===" && grep -E "error:|fatal error:" xcodebuild.log | tail -n 30 && exit 1)
+            DEVELOPMENT_TEAM="" > xcodebuild.log 2>&1; then
+            echo "=== XCODEBUILD FAILED - LAST 60 LINES ==="
+            tail -n 60 xcodebuild.log
+            exit 1
+          fi
 
       - name: Package Unsigned IPA
         working-directory: ios
