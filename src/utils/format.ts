@@ -42,8 +42,7 @@ export function getSourceLabel(sourceId: MusicSourceId): string {
       return 'Custom';
     case 'seeded':
     default:
-    case 'youtube':
-      return 'YouTube';
+      return 'Musify';
   }
 }
 

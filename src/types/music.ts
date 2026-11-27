@@ -5,7 +5,6 @@
 
 export type MusicSourceId =
   | 'local'
-  | 'youtube'
   | 'jamendo'
   | 'audius'
   | 'archive'

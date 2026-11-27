@@ -51,12 +51,16 @@ const KNOWN_AUDIO_EXTS = ['.m4a', '.mp4', '.mp3', '.ogg', '.opus', '.wav', '.fla
 
 export function inferAudioExtensionFromUrlOrMime(url: string, contentType?: string | null): string {
   try {
-    const pathname = new URL(url).pathname.toLowerCase();
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.toLowerCase();
     for (const ext of KNOWN_AUDIO_EXTS) {
       if (pathname.endsWith(ext)) {
         return ext === '.mp4' ? '.m4a' : ext;
       }
     }
+    const queryMime = (parsed.searchParams.get('mime') ?? '').toLowerCase();
+    if (queryMime.includes('mp4') || queryMime.includes('m4a')) return '.m4a';
+    if (queryMime.includes('webm') || queryMime.includes('opus')) return '.ogg';
   } catch {
     const lower = url.split('?')[0].toLowerCase();
     for (const ext of KNOWN_AUDIO_EXTS) {
